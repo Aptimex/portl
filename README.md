@@ -19,7 +19,7 @@ Commands:
 
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `wgns` and the interface is `wgns0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
-The script must always be run as root, e.g. with `sudo ./wgns.sh ...`. I intentionally avoided hard-coding a `sudo` into the script (as is done in the namespace example on Wireguard's website) because that increases the potential for users accidently creating local privilege escalation vulnerabilities if this script was used as part of an automated process (e.g. cron); implicit escalation to root can be dangerous.
+The script requires root privileges to function. The first thing it does is check if it's running as root, and if not it automatically attempts to elevated to root using `sudo`. This may prompt the user for credentials.
 
 ### config
 The specified config file should be one that is compatible with `wg` (see the CONFIGURATION FILE FORMAT section [here](https://www.man7.org/linux/man-pages/man8/wg.8.html)), plus the (required) `Address` and (optional) `DNS` options supported by `wg-quick` (detailed [here](https://man7.org/linux/man-pages/man8/wg-quick.8.html)). **ANY OTHER `wg-quick`-SPECIFIC OPTIONS USED BESIDES `Address` OR `DNS` WILL BE SILENTLY IGNORED.** Comments (`#`) are fine and will be respected/preserved, but avoid using a `#~` combination anywhere because that is used as a special marker for parsing the supported `wg-quick` commands.
@@ -54,3 +54,11 @@ Pretty much any command that you would normally run in bash can be specified and
 
 ### down
 Brings down the namespaced Wireguard interface, then deletes the `wgns` namespace and all network interfaces in it. Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g. iptables rules) will be lost.
+
+# Docker Version (wgnsd.sh)
+This script is the same as the original `wgns.sh`, except it moves the wireguard interface into an existing docker container's namespace instead of creating a new namespace. As part of this process it also deletes all existing network interfaces inside the container, except for `lo` (loopback).
+- This ensures traffic is forced through the wireguard interface, but will probably break things if the container is meant to communicate with any other containers or do any other special local networking activity.
+
+It accomplishes this by running commands inside the namespace from the host, so they will work even if the container doesn't have all the tools/programs that the script runs. In particular, the container doesn't need to have wireguard installed inside it.
+
+Usage is exactly the same as the original script described above, except the `up` command takes a single argument: the truncated 12-character `CONTAINER ID` of the target container, as displayed by `docker ps`. E.g. `wgnsd.sh up a1b2c3d4e5f6`
