@@ -8,8 +8,8 @@
 # Make sure we're running as root
 [[ $UID != 0 ]] && exec sudo -E "$(readlink -f "$0")" "$@"
 
-NAMESPACE="docker-test"
-INTERFACE="wg-test"
+NAMESPACE="wg-docker"
+INTERFACE="wgnsd0"
 CONF="/etc/wireguard/${INTERFACE}.conf"
 
 Red='\033[1;31m'
@@ -46,6 +46,10 @@ up() {
     
     # Link the container's network namespace file to where 'ip netns' can use it.
     pid=$(docker inspect -f '{{.State.Pid}}' "$1")
+    if [[ ! $pid || $pid == 0 ]]; then
+        echo "Invalid PID for Container ID $1, ensure the ID is a valid running container"
+        exit 2
+    fi
     rm -f /var/run/netns/"$NAMESPACE"
     ln -s /proc/$pid/ns/net /var/run/netns/"$NAMESPACE"
     
