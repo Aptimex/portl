@@ -3,11 +3,13 @@
 # modified from the script here: https://www.wireguard.com/netns/
 # using info from here: https://volatilesystems.org/wireguard-in-a-separate-linux-network-namespace.html
 
-# Make sure we're running as root
+# This version is for running wireguard inside a Docker container.
+
+# Make sure we're running as root (auto-elevates if you have NOPASSWD sudo configured)
 [[ $UID != 0 ]] && exec sudo -E "$(readlink -f "$0")" "$@"
 
-NAMESPACE="wgns"
-INTERFACE="wgns0"
+NAMESPACE="dportl"
+INTERFACE="dportl0"
 CONF="/etc/wireguard/${INTERFACE}.conf"
 
 Red='\033[1;31m'
@@ -42,7 +44,16 @@ config() {
 up() {
     set -ex
     
-    ip netns add "$NAMESPACE"
+    # Link the container's network namespace file to where 'ip netns' can use it.
+    pid=$(docker inspect -f '{{.State.Pid}}' "$1")
+    if [[ ! $pid || $pid == 0 ]]; then
+        echo "Invalid PID for Container ID $1, ensure the ID is a valid running container"
+        exit 2
+    fi
+    rm -f /var/run/netns/"$NAMESPACE"
+    ln -s /proc/$pid/ns/net /var/run/netns/"$NAMESPACE"
+    
+    #ip netns add "$NAMESPACE"
     ip link add "$INTERFACE" type wireguard
     ip link set "$INTERFACE" netns "$NAMESPACE"
     ip netns exec "$NAMESPACE" wg setconf "$INTERFACE" "$CONF"
@@ -66,6 +77,13 @@ up() {
         echo nameserver "$dns" >> /etc/netns/"$NAMESPACE"/resolv.conf
     done < <(grep -i "^#~dns" "$CONF" | cut -d= -f2 | tr -d " " | tr "," "\n")
     
+    # Remove all existing interfaces (other than lo)
+    while read -r iface; do
+        if [[ "$iface" != "lo" ]]; then
+            ip netns exec "$NAMESPACE" ip link delete "$iface"
+        fi
+    done < <(ip netns exec "$NAMESPACE" netstat -i | tail -n +3 | cut -d " " -f 1) #ignore the first two header lines
+    
     
     ip -n "$NAMESPACE" link set "$INTERFACE" up
     ip -n "$NAMESPACE" link set lo up
@@ -78,6 +96,7 @@ down() {
     ip -n "$NAMESPACE" link del "$INTERFACE"
     #ip link del "$INTERFACE" #in case the config file had an issue and the interface was created but not moved
     ip netns del "$NAMESPACE"
+    rm -f /var/run/netns/"$NAMESPACE"
 }
 
 exec_n() {
@@ -92,6 +111,7 @@ show() {
 
 usage() {
     echo "Usage: $0 config|up|show|exec|down"
+    echo -e "\tup <truncated id of target docker container, from 'docker ps'>"
     echo -e "\tconfig ./path/to/wg/config/file"
     echo -e "\texec [any command to execute within namesapce]"
     echo -e "\tshow: shortcut to run 'wg show' within namespace"
@@ -108,8 +128,10 @@ command="$1"
 
 case "$command" in
     config) shift && config "$@" ;;
-    up) up ;;
+    #up) up ;;
+    up) shift && up "$@" ;;
     down) down ;;
+    #down) shift && down "$@" ;;
     exec) shift && exec_n "$@" ;;
     show) show ;;
     *) usage ; exit 1 ;;
