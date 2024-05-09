@@ -5,6 +5,7 @@ Bash script to start Wireguard in its own Linux network namespace and then run a
 Portl is useful if you want select programs to (be forced to) use Wireguard as a full VPN without affecting traffic from the rest of your system or having to calculate complicated AllowedIP ranges for some excluded IPs (like your local subnet). It's also a good solution for when you want a specific tool to be able to access local and on-VPN network resources, but have the same (or overlapping) subnet CIDRs on the local and remote ends.
 
 <div align="center">
+
 ![Diagram](media/portl.svg)
 </div>
 
