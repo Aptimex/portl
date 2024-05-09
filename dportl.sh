@@ -114,6 +114,7 @@ usage() {
     echo -e "\tup <truncated id of target docker container, from 'docker ps'>"
     echo -e "\tconfig ./path/to/wg/config/file"
     echo -e "\texec [any command to execute within namesapce]"
+    echo -e "\trun: alias for exec"
     echo -e "\tshow: shortcut to run 'wg show' within namespace"
     
 }
@@ -128,11 +129,10 @@ command="$1"
 
 case "$command" in
     config) shift && config "$@" ;;
-    #up) up ;;
     up) shift && up "$@" ;;
     down) down ;;
-    #down) shift && down "$@" ;;
     exec) shift && exec_n "$@" ;;
+    run) shift && exec_n "$@" ;;
     show) show ;;
     *) usage ; exit 1 ;;
 esac

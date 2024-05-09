@@ -21,6 +21,7 @@ Commands:
 - `show`: shortcut to run `wg show` within the configured namespace.
 - `down`: removes the Wireguard interface and namespace created by `up`.
 - `exec [command]`: run an arbitrary command within the namespace created by `up`.
+- `run [command]`: same as `exec`.
 
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `portl` and the interface is `portl0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
@@ -56,6 +57,9 @@ Shortcut to run `wg show` within the namespace.
 Runs the specified command as the current user (even when `sudo` is used to run the script as root). To run the specified command as root just specify `sudo` as part of the target command. E.g. `portl.sh exec sudo iptables -L`.
 
 Pretty much any command that you would normally run in from your shell can be used and should work as expected. You can even use something like `bash` as the target command to open a shell within the namespace, then return to the parent shell with `exit`.
+
+### run
+Same as `exec`.
 
 ### down
 Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g. iptables rules) will be lost.

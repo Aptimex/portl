@@ -94,6 +94,7 @@ usage() {
     echo "Usage: $0 config|up|show|exec|down"
     echo -e "\tconfig ./path/to/wg/config/file"
     echo -e "\texec [any command to execute within namesapce]"
+    echo -e "\trun: alias for exec"
     echo -e "\tshow: shortcut to run 'wg show' within namespace"
     
 }
@@ -111,6 +112,7 @@ case "$command" in
     up) up ;;
     down) down ;;
     exec) shift && exec_n "$@" ;;
+    run) shift && exec_n "$@" ;;
     show) show ;;
     *) usage ; exit 1 ;;
 esac
