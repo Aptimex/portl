@@ -27,6 +27,24 @@ Note that the namespace and interface names are defined at the top of the script
 
 The script requires root privileges to function. The first thing it does is check if it's running as root, and if not it automatically attempts to elevate to root using `sudo`. This may prompt the user for credentials.
 
+### Quick Start
+Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this]{https://github.com/burghardt/easy-wg-quick} or [this](https://github.com/wg-easy/wg-easy) should get you started.
+
+Generate a basic Wireguard configuration file compatible with `wg-quick` that will connect to your client machine to the Wireguard server. For this example, save it as `tunnel.conf`.
+- Set `AllowedIPs = 0.0.0.0/0` in this configuration file
+
+Then run the following commands on your client:
+```
+./portl.sh config ./tunnel.conf
+./portl.sh up
+./portl.sh show
+```
+- If the Wireguard connection was successful, the `show` command output should include a line like `latest handshake: 5 seconds ago` that indicates a connection was established with a successful handshake.
+
+Now you now can tunnel traffic for arbitrary programs through this connection by running `./portl.sh exec <any command>`
+
+If you want to setup multiple tunnels to different systems just make a copy of the `portl.sh` file and change the `NAMESPACE` value near the top of the file to something unique. Then repeat the entire process using that copy of the script. 
+
 ### config
 The specified config file should be one that is compatible with `wg` (see the CONFIGURATION FILE FORMAT section [here](https://www.man7.org/linux/man-pages/man8/wg.8.html)), plus the (required) `Address` and (optional) `DNS` options supported by `wg-quick` (detailed [here](https://man7.org/linux/man-pages/man8/wg-quick.8.html)). **ANY OTHER `wg-quick`-SPECIFIC OPTIONS USED BESIDES `Address` OR `DNS` WILL BE SILENTLY IGNORED.** Comments (`#`) are fine and will be respected/preserved, but avoid using a `#~` combination anywhere because that is used as a special marker for parsing the supported `wg-quick` commands.
 

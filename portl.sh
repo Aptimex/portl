@@ -8,7 +8,7 @@
 
 NAMESPACE="portl"
 INTERFACE="portl0"
-CONF="/etc/wireguard/${INTERFACE}.conf"
+CONF="/etc/wireguard/${NAMESPACE}.conf"
 
 Red='\033[1;31m'
 Off='\033[0m'
