@@ -122,7 +122,7 @@ usage() {
     
     echo "Example"
     echo "-------"
-    echo "portl.sh config ./wg.conf"
+    echo "portl.sh config ./tunnel.conf"
     echo "portl.sh up"
     echo "portl.sh show"
     echo "portl.sh exec ping -c 4 10.0.0.1"

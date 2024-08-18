@@ -88,7 +88,7 @@ Note that the namespace and interface names are defined at the top of the script
 > If you want to setup multiple portl tunnels to different systems just make a copy of the script file (with a different name, such as `portl2.sh`) and change the `NAMESPACE` and `INTERFACE` values near the top of the file to something unique. 
 
 > [!TIP]
-> Rename the script to `portl` and put it in a folder in your PATH to make it easy to use the program no matter what your current working directory is. 
+> Rename the script to `portl` and put it in a folder in your PATH to make it easy to use portl no matter what your current working directory is. 
 
 The script requires root privileges to function. The first thing it does is check if it's running as root, and if not it automatically attempts to elevate to root using `sudo`. This may prompt the user for credentials.
 
@@ -127,7 +127,7 @@ Pretty much any command that you would normally run in your shell can be used an
 > Using a pipe (or other command-terminating shell characters) will NOT allow the next command to run inside the namespace. For example, if you run `portl.sh exec echo "google.com" | xargs ping`, the `ping` command will NOT run inside the namespace, it will use your normal host namespace. 
 
 > [!TIP]
-> If you need to do something like that, run `portl.sh exec bash` to start a new shell inside the namespace, and then **everything** you run from that shell will also run inside that namespace. 
+> If you need to use something like pipes, run `portl.sh exec bash` to start a new shell inside the namespace, and then **everything** you run from that shell will also run inside that namespace. 
 
 ### run CMD...
 Same as `exec`.
@@ -137,8 +137,6 @@ Brings down the namespaced Wireguard interface, then deletes the `portl` namespa
 
 # Docker Version (dportl.sh)
 This script is the same as the original `portl.sh`, except it moves the wireguard interface into an existing docker container's namespace instead of creating a new `portl` namespace. As part of this process it also deletes all existing network interfaces inside the container, except for `lo` (loopback).
-- Deleting other interfaces ensures container traffic is forced through the Wireguard interface, but will probably break things if the container is meant to communicate with any other containers or do any other special local networking activity.
+- Deleting other interfaces ensures container traffic is forced through the Wireguard interface, but will probably break things if the container is meant to communicate with any other containers or do any other special local networking activity. This is intended mainly for use with containers that provide access to standalone tools/programs that target network resources, for example `nmap`. 
 
-It accomplishes this by running commands inside the namespace from the host, so they will work even if the container doesn't have all the tools/programs that the script runs. In particular, the container doesn't need to have wireguard installed inside it.
-
-Usage is exactly the same as the `portl.sh` script described above, except the `up` command takes a single argument: the truncated 12-character `CONTAINER ID` of the target container, as displayed by `docker ps`. E.g. `dportl.sh up a1b2c3d4e5f6`.
+Usage is exactly the same as the `portl.sh` script described above, except the `up` command takes a single argument: the truncated 12-character `CONTAINER ID` of the target container, as displayed by `docker ps`. E.g. `dportl.sh up e90b8831a4b8`.
