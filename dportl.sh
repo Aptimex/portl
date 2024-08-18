@@ -110,12 +110,41 @@ show() {
 }
 
 usage() {
-    echo "Usage: $0 config|up|show|exec|down"
-    echo -e "\tup <truncated id of target docker container, from 'docker ps'>"
-    echo -e "\tconfig ./path/to/wg/config/file"
-    echo -e "\texec [any command to execute within namesapce]"
-    echo -e "\trun: alias for exec"
-    echo -e "\tshow: shortcut to run 'wg show' within namespace"
+    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | help ]"
+    echo ""
+    echo "COMMANDS"
+    echo -e "\tconfig FILE"
+    echo -e "\t\tSet FILE as the wireguard configuration file to use when creating or deleting the portl namespace\n"
+    
+    echo -e "\tup CONTAINER_ID"
+    echo -e "\t\tCreate the portl namespace and symlink it to the docker container namespace used by CONTAINER_ID (the truncated 12-character ID, as shown in 'docker ps'). This deletes all network interfaces inside the container (except 'lo') and replaces them with a portl interface, forcing all the container's networking to go through it. Must run 'config' first\n"
+    
+    echo -e "\tdown"
+    echo -e "\t\tDeletes the configured portl namespace. The target docker container namespace continues to exist, but the portl interface inside it will be deleted.\n"
+    
+    echo -e "\tshow"
+    echo -e "\t\tShortcut to run 'wg show' within the portl namespace\n"
+    
+    echo -e "\texec CMD..."
+    echo -e "\t\tRun any command within the portl namesapce. However, the purpose of this script is really to make any commands run inside the docker container go through the wireguard tunnel, so you shouldn't need to use this.\n"
+    
+    echo -e "\trun CMD..."
+    echo -e "\t\tAlias for exec\n"
+    
+    echo -e "\thelp"
+    echo -e "\t\tDisplay this help message\n"
+    echo ""
+    echo -e "Each command can also be run by specifying only its first letter, such as 's' instead of 'show'.\n"
+    echo ""
+    
+    echo "Example"
+    echo "-------"
+    echo "dportl.sh config ./tunnel.conf"
+    echo "dportl.sh up e90b8831a4b8"
+    echo "docker exec -it e90b8831a4b8 ping -c 4 10.0.0.1"
+    echo "docker exec -it e90b8831a4b8 curl 10.0.0.1:8080/info.txt"
+    echo "dportl.sh down"
+    echo "docker stop e90b8831a4b8"
     
 }
 
@@ -129,10 +158,26 @@ command="$1"
 
 case "$command" in
     config) shift && config "$@" ;;
+    configure) shift && config "$@" ;;
+    c) shift && config "$@" ;; #shortcut
+    
     up) shift && up "$@" ;;
+    u) shift && up "$@" ;; #shortcut
+    
     down) down ;;
-    exec) shift && exec_n "$@" ;;
-    run) shift && exec_n "$@" ;;
+    d) down ;; #shortcut
+    
     show) show ;;
-    *) usage ; exit 1 ;;
+    s) show ;; #shortcut
+    
+    exec) shift && exec_n "$@" ;;
+    e) shift && exec_n "$@" ;; #shortcut
+    run) shift && exec_n "$@" ;; #same as exec
+    r) shift && exec_n "$@" ;; #shortcut
+    
+    help) usage ; exit 1 ;;
+    h) usage ; exit 1 ;;
+    -h) usage ; exit 1 ;;
+    
+    *) exec_n "$@" ;; #asume exec
 esac

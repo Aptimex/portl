@@ -91,11 +91,43 @@ show() {
 }
 
 usage() {
-    echo "Usage: $0 config|up|show|exec|down"
-    echo -e "\tconfig ./path/to/wg/config/file"
-    echo -e "\texec [any command to execute within namesapce]"
-    echo -e "\trun: alias for exec"
-    echo -e "\tshow: shortcut to run 'wg show' within namespace"
+    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | help ]"
+    echo ""
+    echo "COMMANDS"
+    echo -e "\tconfig FILE"
+    echo -e "\t\tSet FILE as the wireguard configuration file to use when creating or deleting the portl namespace\n"
+    
+    echo -e "\tup"
+    echo -e "\t\tCreate the portl namespace (must run 'config' first)\n"
+    
+    echo -e "\tdown"
+    echo -e "\t\tDelete the configured portl namespace\n"
+    
+    echo -e "\tshow"
+    echo -e "\t\tShortcut to run 'wg show' within the portl namespace\n"
+    
+    echo -e "\texec CMD..."
+    echo -e "\t\tRun any command within the portl namesapce\n"
+    
+    echo -e "\trun CMD..."
+    echo -e "\t\tAlias for exec\n"
+    
+    echo -e "\thelp"
+    echo -e "\t\tDisplay this help message\n"
+    echo ""
+    echo -e "Each command can also be run by specifying only its first letter, such as 's' instead of 'show'.\n"
+    echo -e "If none of the above commands are provided as the first argument, 'exec' is assumed. This means you can use 'portl.sh CMD...' instead of 'portl.sh exec CMD...'\n"
+    echo -e "Note that you cannot chain COMMANDs together with pipes inside the namespace; anything after the first pipe will run outside the namespace due to the way shells handle them. If you need to do this, start by running 'portl.sh exec bash' or similar, at which point everything that runs in the new shell will be inside the portl namespace.\n"
+    echo ""
+    
+    echo "Example"
+    echo "-------"
+    echo "portl.sh config ./tunnel.conf"
+    echo "portl.sh up"
+    echo "portl.sh show"
+    echo "portl.sh exec ping -c 4 10.0.0.1"
+    echo "portl.sh curl 10.0.0.1:8080/info.txt"
+    echo "portl.sh down"
     
 }
 
@@ -109,10 +141,26 @@ command="$1"
 
 case "$command" in
     config) shift && config "$@" ;;
+    configure) shift && config "$@" ;;
+    c) shift && config "$@" ;; #shortcut
+    
     up) up ;;
+    u) up ;; #shortcut
+    
     down) down ;;
-    exec) shift && exec_n "$@" ;;
-    run) shift && exec_n "$@" ;;
+    d) down ;; #shortcut
+    
     show) show ;;
-    *) usage ; exit 1 ;;
+    s) show ;; #shortcut
+    
+    exec) shift && exec_n "$@" ;;
+    e) shift && exec_n "$@" ;; #shortcut
+    run) shift && exec_n "$@" ;; #same as exec
+    r) shift && exec_n "$@" ;; #shortcut
+    
+    help) usage ; exit 1 ;;
+    h) usage ; exit 1 ;;
+    -h) usage ; exit 1 ;;
+    
+    *) exec_n "$@" ;; #asume exec
 esac
