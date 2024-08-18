@@ -91,7 +91,7 @@ show() {
 }
 
 usage() {
-    echo "Usage: $0 [ config | up | down | show | exec | run | help ]"
+    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | help ]"
     echo ""
     echo "COMMANDS"
     echo -e "\tconfig FILE"
@@ -106,28 +106,28 @@ usage() {
     echo -e "\tshow"
     echo -e "\t\tShortcut to run 'wg show' within the portl namespace\n"
     
-    echo -e "\texec COMMAND..."
+    echo -e "\texec CMD..."
     echo -e "\t\tRun any command within the portl namesapce\n"
     
-    echo -e "\trun"
+    echo -e "\trun CMD..."
     echo -e "\t\tAlias for exec\n"
     
     echo -e "\thelp"
     echo -e "\t\tDisplay this help message\n"
     echo ""
-    echo -e "Each command can also be run by specefying only its first letter, such as 's' instead of 'show'.\n"
-    echo -e "If none of the above commands are provided as the first argument, 'exec' is assumed. This means you can use 'portl COMMAND...' instead of 'portl exec COMMAND...'\n"
-    echo -e "Note that you cannot chain COMMANDs together with pipes inside the namespace; anything after the first pipe will run outside the namespace due to the way shells handle them. If you need to do this, start by running 'portl bash' or similar, at which point everything that runs in the new shell will be inside the portl namespace.\n"
+    echo -e "Each command can also be run by specifying only its first letter, such as 's' instead of 'show'.\n"
+    echo -e "If none of the above commands are provided as the first argument, 'exec' is assumed. This means you can use 'portl.sh CMD...' instead of 'portl.sh exec CMD...'\n"
+    echo -e "Note that you cannot chain COMMANDs together with pipes inside the namespace; anything after the first pipe will run outside the namespace due to the way shells handle them. If you need to do this, start by running 'portl.sh exec bash' or similar, at which point everything that runs in the new shell will be inside the portl namespace.\n"
     echo ""
     
     echo "Example"
     echo "-------"
-    echo "portl config ./wg.conf"
-    echo "portl up"
-    echo "portl show"
-    echo "portl exec ping -c 4 10.0.0.1"
-    echo "portl curl 10.0.0.1:8080/info.txt"
-    echo "portl down"
+    echo "portl.sh config ./wg.conf"
+    echo "portl.sh up"
+    echo "portl.sh show"
+    echo "portl.sh exec ping -c 4 10.0.0.1"
+    echo "portl.sh curl 10.0.0.1:8080/info.txt"
+    echo "portl.sh down"
     
 }
 
@@ -143,10 +143,13 @@ case "$command" in
     config) shift && config "$@" ;;
     configure) shift && config "$@" ;;
     c) shift && config "$@" ;; #shortcut
+    
     up) up ;;
     u) up ;; #shortcut
+    
     down) down ;;
     d) down ;; #shortcut
+    
     show) show ;;
     s) show ;; #shortcut
     
@@ -159,5 +162,5 @@ case "$command" in
     h) usage ; exit 1 ;;
     -h) usage ; exit 1 ;;
     
-    *) exec_n "$@" ;;
+    *) exec_n "$@" ;; #asume exec
 esac

@@ -1,8 +1,8 @@
 # Portl
 
-Bash script to start Wireguard in its own Linux network namespace and then run arbitrary commands within that namespace. This "portals" individual process traffic through the Wireguard interface without affecting traffic for any other process. Requires root access.
+Bash script to start Wireguard in its own Linux network namespace and then run arbitrary commands within that namespace. This "portals" individual process traffic through the Wireguard interface without affecting traffic for any other process. Requires root/sudo.
 
-Portl is useful if you want select programs to (be forced to) use Wireguard as a full VPN without affecting traffic from the rest of your system or having to calculate complicated AllowedIP ranges for some excluded IPs (like your local subnet). It's also a good solution for when you want a specific tool to be able to access local and on-VPN network resources, but have the same (or overlapping) subnet CIDRs on the local and remote ends.
+Portl is useful if you want select programs to (be forced to) use Wireguard as a VPN without affecting traffic from the rest of your system or having to calculate complicated AllowedIP ranges for some excluded IPs (like your local subnet). It's also a good solution for when you want a specific tool to be able to access both local and on-VPN network resources at different times, but have the same (or overlapping) subnet CIDRs on the local and remote ends.
 
 <div align="center">
 
@@ -11,9 +11,68 @@ Portl is useful if you want select programs to (be forced to) use Wireguard as a
 
 Requires GNU `sed`, `grep`, `cut`, and `tr` to be installed. If you get errors about unsupported flags in these commands it's probably because you have a BSD (POSIX) version installed.
 
+## Quick Start
+Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this](https://github.com/burghardt/easy-wg-quick) or [this](https://github.com/wg-easy/wg-easy) should get you started.
+
+Generate a basic Wireguard configuration file compatible with `wg-quick` that will connect to your client machine to the Wireguard server. For this example, save it as `tunnel.conf`.
+- Set `AllowedIPs = 0.0.0.0/0` in this configuration file
+
+Then run the following commands on your client:
+```
+./portl.sh config ./tunnel.conf
+./portl.sh up
+./portl.sh show
+```
+- If the Wireguard connection was successful, the `show` command output should include a line like `latest handshake: X seconds ago` that indicates a connection was established with a successful handshake.
+
+Now you now can tunnel traffic for arbitrary programs through this connection by running `./portl.sh exec <any command>`
+- `./portl.sh run <any command>` is equivalent
+- You can also use `./portl.sh <any command>` so long as the first word in the command is not the same as one of the other portl commands. 
+
 ## Usage
 
-`portl.sh [command] [arguments]`
+```
+Usage: portl.sh [ config FILE | up | down | show | exec CMD | run CMD | help ]
+
+COMMANDS
+        config FILE
+                Set FILE as the wireguard configuration file to use when creating or deleting the portl namespace
+
+        up
+                Create the portl namespace (must run 'config' first)
+
+        down
+                Delete the configured portl namespace
+
+        show
+                Shortcut to run 'wg show' within the portl namespace
+
+        exec CMD...
+                Run any command within the portl namesapce
+
+        run CMD...
+                Alias for exec
+
+        help
+                Display this help message
+
+
+Each command can also be run by specifying only its first letter, such as 's' instead of 'show'.
+
+If none of the above commands are provided as the first argument, 'exec' is assumed. This means you can use 'portl.sh CMD...' instead of 'portl.sh exec CMD...'
+
+Note that you cannot chain COMMANDs together with pipes inside the namespace; anything after the first pipe will run outside the namespace due to the way shells handle them. If you need to do this, start by running 'portl.sh bash' or similar, at which point everything that runs in the new shell will be inside the portl.sh namespace.
+
+
+Example
+-------
+portl.sh config ./tunnel.conf
+portl.sh up
+portl.sh show
+portl.sh exec ping -c 4 10.0.0.1
+portl.sh curl 10.0.0.1:8080/info.txt
+portl.sh down
+```
 
 Commands:
 - `config path/to/config/file`: specify a Wireguard configuration file to use (caveats below).
@@ -25,27 +84,15 @@ Commands:
 
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `portl` and the interface is `portl0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
+> [!TIP]
+> If you want to setup multiple portl tunnels to different systems just make a copy of the script file (with a different name, such as `portl2.sh`) and change the `NAMESPACE` and `INTERFACE` values near the top of the file to something unique. 
+
+> [!TIP]
+> Rename the script to `portl` and put it in a folder in your PATH to make it easy to use the program no matter what your current working directory is. 
+
 The script requires root privileges to function. The first thing it does is check if it's running as root, and if not it automatically attempts to elevate to root using `sudo`. This may prompt the user for credentials.
 
-### Quick Start
-Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this]{https://github.com/burghardt/easy-wg-quick} or [this](https://github.com/wg-easy/wg-easy) should get you started.
-
-Generate a basic Wireguard configuration file compatible with `wg-quick` that will connect to your client machine to the Wireguard server. For this example, save it as `tunnel.conf`.
-- Set `AllowedIPs = 0.0.0.0/0` in this configuration file
-
-Then run the following commands on your client:
-```
-./portl.sh config ./tunnel.conf
-./portl.sh up
-./portl.sh show
-```
-- If the Wireguard connection was successful, the `show` command output should include a line like `latest handshake: 5 seconds ago` that indicates a connection was established with a successful handshake.
-
-Now you now can tunnel traffic for arbitrary programs through this connection by running `./portl.sh exec <any command>`
-
-If you want to setup multiple tunnels to different systems just make a copy of the `portl.sh` file and change the `NAMESPACE` value near the top of the file to something unique. Then repeat the entire process using that copy of the script. 
-
-### config
+### config FILE
 The specified config file should be one that is compatible with `wg` (see the CONFIGURATION FILE FORMAT section [here](https://www.man7.org/linux/man-pages/man8/wg.8.html)), plus the (required) `Address` and (optional) `DNS` options supported by `wg-quick` (detailed [here](https://man7.org/linux/man-pages/man8/wg-quick.8.html)). **ANY OTHER `wg-quick`-SPECIFIC OPTIONS USED BESIDES `Address` OR `DNS` WILL BE SILENTLY IGNORED.** Comments (`#`) are fine and will be respected/preserved, but avoid using a `#~` combination anywhere because that is used as a special marker for parsing the supported `wg-quick` commands.
 
 At a minimum, the config file should contain the following:
@@ -71,12 +118,18 @@ If the original config file contained `DNS=IP` options (also allowing multiple c
 ### show
 Shortcut to run `wg show` within the namespace.
 
-### exec
-Runs the specified command as the current user (even when `sudo` is used to run the script as root). To run the specified command as root just specify `sudo` as part of the target command. E.g. `portl.sh exec sudo iptables -L`.
+### exec CMD...
+Runs the specified command as the **current user**, even when `sudo` is used to run the script with root privileges. To run a command as root just specify `sudo` as part of the command. For example, `portl.sh exec sudo iptables -L`.
 
-Pretty much any command that you would normally run in from your shell can be used and should work as expected. You can even use something like `bash` as the target command to open a shell within the namespace, then return to the parent shell with `exit`.
+Pretty much any command that you would normally run in your shell can be used and should work as expected. You can even use something like `bash` as the target command to open a shell within the namespace, then return to the parent shell with `exit`.
 
-### run
+> [!IMPORTANT]
+> Using a pipe (or other command-terminating shell characters) will NOT allow the next command to run inside the namespace. For example, if you run `portl.sh exec echo "google.com" | xargs ping`, the `ping` command will NOT run inside the namespace, it will use your normal host namespace. 
+
+> [!TIP]
+> If you need to do something like that, run `portl.sh exec bash` to start a new shell inside the namespace, and then **everything** you run from that shell will also run inside that namespace. 
+
+### run CMD...
 Same as `exec`.
 
 ### down
