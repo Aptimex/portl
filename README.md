@@ -52,6 +52,11 @@ COMMANDS
 
         run CMD...
                 Alias for exec
+        
+        fwd PROTOCOL fromPort [toPort]
+                Forward localhost port traffic from inside the portl namespace to a localhost port in the host namespace
+                PROTOCOL must be tcp, t, udp, or u
+                toPort will be the same as fromPort if not specified
 
         help
                 Display this help message
@@ -79,8 +84,9 @@ Commands:
 - `up`: brings up a namespaced Wireguard interface using the config file specified previously.
 - `show`: shortcut to run `wg show` within the configured namespace.
 - `down`: removes the Wireguard interface and namespace created by `up`.
-- `exec [command]`: run an arbitrary command within the namespace created by `up`.
-- `run [command]`: same as `exec`.
+- `exec CMD...`: run an arbitrary command within the namespace created by `up`.
+- `run CMD...`: same as `exec`.
+- `fwd PROTOCOL fromPort [toPort]`: Forward traffic from inside the namespace to your normal host namespace.
 
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `portl` and the interface is `portl0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
@@ -131,6 +137,17 @@ Pretty much any command that you would normally run in your shell can be used an
 
 ### run CMD...
 Same as `exec`.
+
+### fwd PROTOCOL fromPort [toPort]
+Uses socat to forward traffic recieved inside the portl namespace on `localhost:<fromPort>` to `localhost:<toPort>` inside the current namespace, which is typically the normal host namespace. This is useful if you're running something like an SSH reverse port forward inside the namespace and want that to route to a service listening on localhost outside that namespace. 
+
+This is accomplished by creating an on-disk Unix socket file that is accessible from any network namespace, which is used to relay traffic between the two namespaces. 
+
+This implementation should work for any combination of IPv4 and IPv6 traffic, including mixing them between the source and destination. But it does not allow converting between TCP traffic into UDP traffic, or vice versa. 
+
+Argument notes:
+- `PROTOCOL` must be `tcp`, `t`, `udp`, or `u`
+- `toPort` will be the same as `fromPort` if not specified
 
 ### down
 Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g. iptables rules) will be lost.

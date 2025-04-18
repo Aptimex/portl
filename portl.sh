@@ -10,6 +10,9 @@ NAMESPACE="portl"
 INTERFACE="portl0"
 CONF="/etc/wireguard/${NAMESPACE}.conf"
 
+# Some functions may need to recursively call this script
+portlCMD=$0
+
 Red='\033[1;31m'
 Off='\033[0m'
 
@@ -90,6 +93,84 @@ show() {
     ip netns exec "$NAMESPACE" wg show
 }
 
+forward() {
+    # Forwards a port from inside the namespace back to your normal host namespace 
+    # Does this using two SOCAT commands that talk via a "unix domain socket" file
+    # This script will keep running while the child processes are alive, and forward INT signals to them
+    # Recommand backgrounding this script and using job control to end it
+
+    children=() #array of PIDs to kill on exit
+
+    cleanup() {
+        # kill all processes whose parent is this process
+        pkill -P $$
+    }
+
+    for sig in INT QUIT HUP TERM; do
+    trap "
+        cleanup
+        trap - $sig EXIT
+        kill -s $sig "'"$$"' "$sig"
+    done
+    trap cleanup EXIT
+
+    fUsage() {
+        echo "Usage: $portlCMD fwd protocol fromPort [toPort]"
+        echo "protocol must be tcp, t, udp, or u"
+        echo "toPort will be same as fromPort if not specified"
+        exit 1
+    }    
+
+    if [ "$#" -lt 2 ]; then
+        fUsage
+    fi
+
+    set -e
+
+    protocol=$1
+    nsPort=$2
+    extPort=${3:-$nsPort} #if extPort is not provided, use nsPort
+    sFile="./$NAMESPACE.$protocol-$nsPort-$extPort.sock"
+    pl="${protocol,,}"
+
+    #set -x
+    if [[ "$pl" == "tcp" || "$pl" == "t" ]]; then
+        # IPv-agnotic TCP (or UDP) destination with localhost target works for both ipv4 and ipv6
+        socat UNIX-LISTEN:$sFile,reuseaddr,fork TCP:localhost:$extPort &
+        children+=($!)
+        echo "Child Process 1: $!"
+
+        # TCP6-LISTEN (or UDP6-LISTEN) captures IPv4 traffic as well
+        $portlCMD exec sudo socat TCP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        children+=($!)
+        echo "Child Process 2: $!"
+
+    elif [[ "$pl" == "udp" || "$pl" == "u" ]]; then
+        socat UNIX-LISTEN:$sFile,reuseaddr,fork UDP:localhost:$extPort &
+        children+=($!)
+        echo "Child Process 1: $!"
+
+        $portlCMD exec sudo socat UDP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        children+=($!)
+        echo "Child Process 2: $!"
+
+    else 
+        echo "error: protocol must be tcp, t, udp, or u"
+        fUsage
+        exit 1
+    fi
+
+    #socat TCP4-LISTEN:80,bind=127.0.0.1,reuseaddr,fork TCP6:[::1]:8080 &
+    echo "$protocol: $nsPort -> $extPort"
+
+    #This will wait forever unless both children somehow die
+    for pid in "${children[@]}"
+    do
+            wait $pid
+    done
+    exit 0
+}
+
 usage() {
     echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | help ]"
     echo ""
@@ -111,6 +192,11 @@ usage() {
     
     echo -e "\trun CMD..."
     echo -e "\t\tAlias for exec\n"
+
+    echo -e "\tfwd PROTOCOL fromPort [toPort]"
+    echo -e "\t\tForward localhost port traffic from inside the portl namespace to a localhost port in the host namespace\n"
+    echo -e "\t\tPROTOCOL must be tcp, t, udp, or u\n"
+    echo -e "\t\ttoPort will be the same as fromPort if not specified\n"
     
     echo -e "\thelp"
     echo -e "\t\tDisplay this help message\n"
@@ -157,10 +243,13 @@ case "$command" in
     e) shift && exec_n "$@" ;; #shortcut
     run) shift && exec_n "$@" ;; #same as exec
     r) shift && exec_n "$@" ;; #shortcut
+
+    fwd) shift && forward "$@" ;;
+    f) shift && forward "$@" ;;
     
     help) usage ; exit 1 ;;
     h) usage ; exit 1 ;;
     -h) usage ; exit 1 ;;
     
-    *) exec_n "$@" ;; #asume exec
+    *) exec_n "$@" ;; #assume exec
 esac
