@@ -172,7 +172,7 @@ forward() {
 }
 
 usage() {
-    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | help ]"
+    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | fwd OPTIONS | help ]"
     echo ""
     echo "COMMANDS"
     echo -e "\tconfig FILE"

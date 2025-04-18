@@ -32,7 +32,7 @@ Now you now can tunnel traffic for arbitrary programs through this connection by
 ## Usage
 
 ```
-Usage: portl.sh [ config FILE | up | down | show | exec CMD | run CMD | help ]
+Usage: portl.sh [ config FILE | up | down | show | exec CMD | run CMD | fwd OPTIONS | help ]
 
 COMMANDS
         config FILE
