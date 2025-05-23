@@ -101,7 +101,7 @@ Note that the namespace and interface names are defined at the top of the script
 The script requires root privileges to function. The first thing it does is check if it's running as root, and if not it automatically attempts to elevate to root using `sudo`. This may prompt the user for credentials.
 
 ### config FILE
-The specified config file should be one that is compatible with `wg` (see the CONFIGURATION FILE FORMAT section [here](https://www.man7.org/linux/man-pages/man8/wg.8.html)), plus the (required) `Address` and (optional) `DNS` options supported by `wg-quick` (detailed [here](https://man7.org/linux/man-pages/man8/wg-quick.8.html)). **ANY OTHER `wg-quick`-SPECIFIC OPTIONS USED BESIDES `Address` OR `DNS` WILL BE SILENTLY IGNORED.** Comments (`#`) are fine and will be respected/preserved, but avoid using a `#~` combination anywhere because that is used as a special marker for parsing the supported `wg-quick` commands.
+The specified config file should be one that is compatible with `wg` (see the CONFIGURATION FILE FORMAT section [here](https://www.man7.org/linux/man-pages/man8/wg.8.html)), plus the (required) `Address` and (optional) `DNS` and `MTU` options supported by `wg-quick` (detailed [here](https://man7.org/linux/man-pages/man8/wg-quick.8.html)). **ANY OTHER `wg-quick`-SPECIFIC OPTIONS USED BESIDES `Address`, `DNS`, OR `MTU` WILL BE IGNORED.** Comments (`#`) are fine and will be respected/preserved, but avoid using a `#~` combination anywhere because that is used as a special marker for parsing the supported `wg-quick` commands.
 
 At a minimum, the config file should contain the following:
 ```

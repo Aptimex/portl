@@ -20,8 +20,8 @@ config() {
     # -e causes the script to exit if any command errors out
     # -x prints each executed line, prepended with a +
     set -e
-    supported="address|dns"
-    unsupported="mtu|table|preup|postup|predown|postdown|saveconfig"
+    supported="address|dns|mtu"
+    unsupported="table|preup|postup|predown|postdown|saveconfig"
     
     #warn if unsupported options are found
     while read -r u; do
@@ -55,6 +55,13 @@ up() {
         ip -n "$NAMESPACE" addr add "$address" dev "$INTERFACE"
     done < <(grep -i "^#~address" "$CONF" | cut -d= -f2 | tr -d " " | tr "," "\n")
     
+    #Parse MTU
+    while read -r mtu; do
+        if ! [ -z "$mtu" ]; then
+            ip -n "$NAMESPACE" link set dev "$INTERFACE" mtu "$mtu"
+        fi
+    done < <(grep -i "^#~mtu" "$CONF" | cut -d= -f2 | tr -d " ")
+
     #Parse DNS
     #By default, /etc/resolve.conf will be used by the namespace
     #If /etc/netns/NAMESPACE_NAME/resolv.conf exists (it is persistent), that will be used by the namespace instead
