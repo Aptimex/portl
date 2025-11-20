@@ -154,6 +154,10 @@ Argument notes:
 ### down
 Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g. iptables rules) will be lost.
 
+# Known Limitations
+- `portl sudo masscan` will often not be able to automatically identify the correct interface to use. Specify the correct interface inside the namespace for masscan to use with `-i portl0` (or whatever the correct interface name is)
+- `portl sudo mount ...` doesn't always work correctly when mounting network shares; the mount may succeed but not actually be visible on the filesystem. `portl bash` followed by `sudo mount ...` seems to work just fine, but the mount may only be accessible from that new bash session/process. I currently have no idea why this happens. 
+
 # Docker Version (dportl.sh)
 This script is the same as the original `portl` script, except it moves the wireguard interface into an existing docker container's namespace instead of creating a new `portl` namespace. As part of this process it also deletes all existing network interfaces inside the container, except for `lo` (loopback).
 - Deleting other interfaces ensures container traffic is forced through the Wireguard interface, but will probably break things if the container is meant to communicate with any other containers or do any other special local networking activity. This is intended mainly for use with containers that provide access to standalone tools/programs that target network resources, for example `nmap`. 
