@@ -12,16 +12,19 @@ Portl is useful if you want select programs to (be forced to) use Wireguard as a
 Requires GNU `sed`, `grep`, `cut`, and `tr` to be installed. If you get errors about unsupported flags in these commands it's probably because you have a BSD (POSIX) version installed.
 
 ## Quick Start
-> [!IMPORTANT]
-> This README assumes you renamed the `port.sh` file to `portl` and placed it somewhere in your PATH. I strongly recommend doing this because it makes the tool much easier to use. 
 
-Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this](https://github.com/burghardt/easy-wg-quick) or [this](https://github.com/wg-easy/wg-easy) should get you started.
+First, put the `portl` file somewhere in your PATH (I recommend `/usr/local/bin`) and ensure it is executable. This is how you "install" Portl. 
+
+> [!IMPORTANT]
+> For best results, ensure the `portl` script is in a location specified in the `secure_path` value (if present) in `/etc/sudoers`. Otherwise you may encounter strange errors due to [sudo's PATH reset feature](https://askubuntu.com/questions/128413/setting-the-path-so-it-applies-to-all-users-including-root-sudo) on many distros.
+
+Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this](https://github.com/burghardt/easy-wg-quick) or [this](https://github.com/wg-easy/wg-easy) should get you started (or try [Wiretap](https://github.com/sandialabs/wiretap)!).
 
 Generate a basic Wireguard configuration file compatible with `wg-quick` that will connect to your client machine to the Wireguard server. For this example, save it as `tunnel.conf`.
 - Set `AllowedIPs = 0.0.0.0/0` in this configuration file
 
 Then run the following commands on your client:
-```
+```bash
 portl config ./tunnel.conf
 portl up
 portl show
@@ -93,7 +96,7 @@ Commands:
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `portl` and the interface is `portl0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
 > [!TIP]
-> If you want to setup multiple portl tunnels to different systems just make a copy of the script file (with a different name, such as `portl2.sh`) and change the `NAMESPACE` and `INTERFACE` values near the top of the file to something unique. 
+> If you want to setup multiple portl tunnels to different systems just make a copy of the script file (with a different name, such as `portl2`) and change the `NAMESPACE` and `INTERFACE` values near the top of the file to something unique. 
 
 > [!TIP]
 > Rename the script to `portl` and put it in a folder in your PATH to make it easy to use portl no matter what your current working directory is. 
@@ -155,11 +158,18 @@ Argument notes:
 Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g. iptables rules) will be lost.
 
 # Known Limitations
-- `portl sudo masscan` will often not be able to automatically identify the correct interface to use. Specify the correct interface inside the namespace for masscan to use with `-i portl0` (or whatever the correct interface name is)
+- `portl sudo masscan` will often not be able to automatically identify the correct interface to use. Specify the correct interface inside the namespace for `masscan` to use with `-i portl0` (or whatever the correct interface name is)
 - `portl sudo mount ...` doesn't always work correctly when mounting network shares; the mount may succeed but not actually be visible on the filesystem. `portl bash` followed by `sudo mount ...` seems to work just fine, but the mount may only be accessible from that new bash session/process. I currently have no idea why this happens. 
 
-# Docker Version (dportl.sh)
+# Docker Version (dportl)
 This script is the same as the original `portl` script, except it moves the wireguard interface into an existing docker container's namespace instead of creating a new `portl` namespace. As part of this process it also deletes all existing network interfaces inside the container, except for `lo` (loopback).
-- Deleting other interfaces ensures container traffic is forced through the Wireguard interface, but will probably break things if the container is meant to communicate with any other containers or do any other special local networking activity. This is intended mainly for use with containers that provide access to standalone tools/programs that target network resources, for example `nmap`. 
+- Deleting other interfaces ensures container traffic is forced through the Wireguard interface, but will probably break things if the container is meant to communicate with any other containers or do any other special local networking activity. This is intended mainly for use with containers that provide access to standalone tools/programs that target network resources, for example [nmap](https://hub.docker.com/r/instrumentisto/nmap). 
 
-Usage is exactly the same as the `portl` script described above, except the `up` command takes a single argument: the truncated 12-character `CONTAINER ID` of the target container, as displayed by `docker ps`. E.g. `dportl.sh up e90b8831a4b8`.
+Usage is exactly the same as the `portl` script described above, except the `up` command takes a single argument: the truncated 12-character `CONTAINER ID` of the target container, as displayed by `docker ps`. For example:
+
+```bash
+dportl config ./tunnel.conf
+dportl up e90b8831a4b8
+dportl show
+sudo docker exec e90b8831a4b8 <command>
+```
