@@ -21,18 +21,19 @@ First, put the `portl` file somewhere in your PATH (I recommend `/usr/local/bin`
 Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this](https://github.com/burghardt/easy-wg-quick) or [this](https://github.com/wg-easy/wg-easy) should get you started (or try [Wiretap](https://github.com/sandialabs/wiretap)!).
 
 Generate a basic Wireguard configuration file compatible with `wg-quick` that will connect to your client machine to the Wireguard server. For this example, save it as `tunnel.conf`.
-- Set `AllowedIPs = 0.0.0.0/0` in this configuration file
+- You may safely set `AllowedIPs = 0.0.0.0/0` in this configuration file
 
 Then run the following commands on your client:
 ```bash
-portl config ./tunnel.conf
-portl up
+portl up ./tunnel.conf
 portl show
 ```
 - If the Wireguard connection was successful, the `show` command output should include a line like `latest handshake: X seconds ago` that indicates a connection was established with a successful handshake.
 
 Now you now can tunnel traffic for arbitrary programs through this connection by running `portl <any command>`
-- `portl run <any command>` and `portl exec <any command>` are equivalent options. 
+- `portl run <any command>` and `portl exec <any command>` are more verbose ways of doing the same thing. 
+
+Run `portl down` to remove the namespace and tunnel. If the config file hasn't changed, you can then run `portl up` (without specifying a file) to bring the same namespace and tunnel back up. 
 
 ## Usage
 
@@ -41,10 +42,10 @@ Usage: portl [ config FILE | up | down | show | exec CMD | run CMD | fwd OPTIONS
 
 COMMANDS
         config FILE
-                Set FILE as the wireguard configuration file to use when creating or deleting the portl namespace
+                Set FILE as the wireguard configuration file to use for 'up' and 'down' commands
 
-        up
-                Create the portl namespace (must run 'config' first)
+        up [FILE]
+                Create the portl namespace; must either run 'config' first or specify a config file
 
         down
                 Delete the configured portl namespace
@@ -76,8 +77,7 @@ Note that you cannot chain COMMANDs together with pipes inside the namespace; an
 
 Example
 -------
-portl config ./tunnel.conf
-portl up
+portl up ./tunnel.conf
 portl show
 portl exec ping -c 4 10.0.0.1
 portl curl 10.0.0.1:8080/info.txt
@@ -85,8 +85,8 @@ portl down
 ```
 
 Commands:
-- `config path/to/config/file`: specify a Wireguard configuration file to use (caveats below).
-- `up`: brings up a namespaced Wireguard interface using the config file specified previously.
+- `config path/to/config/file`: specify a Wireguard configuration file to use (see caveats).
+- `up [path/to/config/file]`: brings up a namespaced Wireguard interface; either uses the config file specified by previous `config` command, or configures the one passed as an argument
 - `show`: shortcut to run `wg show` within the configured namespace.
 - `down`: removes the Wireguard interface and namespace created by `up`.
 - `exec CMD...`: run an arbitrary command within the namespace created by `up`.
@@ -119,12 +119,12 @@ Endpoint = [server IP or FQDN]:[port] #default port is 51820
 ```
 - You may also swap out the Peer's `Endpoint` for an Interface `ListenPort` if you want to act more like a server and have the peer initiate connections to this machine.
 
-The specified config file will be copied to `/etc/wireguard/portl0.conf`. `Address` and `DNS` lines (not supported by `wg`) will be commented out but parsed later by the `up` command to configure the interface. The config file will persist after the interface is removed (via the `down` command or otherwise) so you should only need to run `config` once unless configuration changes are needed.
+The specified config file will be copied to `/etc/wireguard/portl.conf`. `Address` and `DNS` lines (not supported by `wg`) will be commented out but parsed later by the `up` command to configure the interface. The config file will persist after the interface is removed (via the `down` command or otherwise) so you should only need to run `config` once unless configuration changes are needed.
 
 ### up
-Uses the config file at `/etc/wireguard/portl0.conf` (created via the `config` command) to create a Wireguard interface named `portl0` located in the `portl` network namespace.
+Uses the config file at `/etc/wireguard/portl.conf` (created via the `config` command) to create a Wireguard interface named `portl0` located in the `portl` network namespace. Alternatively, specify a config file path as the argument to this command rather than running the `config` command first. 
 
-If the original config file contained `DNS=IP` options (also allowing multiple comma-separated IPs), those will be parsed and applied as `nameserver [IP]` values to a `resolve.conf` file specific to the `portl` namespace. This is done by writing the values to `/etc/netns/portl/resolve.conf`, which Linux will make available inside the namespace at the standard `/etc/resolve.conf` location without affecting that file outside the namespace. Like the config file in `/etc/wireguard/`, this namespaced `resolve.conf` file will be persistent and remain in use until modified manually or by the `config` command. If `/etc/netns/portl/resolve.conf` does not exist (either because it is deleted or DNS was never specified in a config file) then the namespace will use the same `/etc/resolve.conf` file as the main OS.
+If the original config file contained `DNS=IP` options (also allowing multiple comma-separated IPs), those will be parsed and applied as `nameserver [IP]` values to a `resolve.conf` file specific to the `portl` namespace. This is done by writing the values to `/etc/netns/portl/resolve.conf`, which Linux will make available inside the namespace at the standard `/etc/resolve.conf` location without affecting that file outside the namespace. Like the config file in `/etc/wireguard/`, this `/etc/netns/portl/resolve.conf` file will persist until modified manually or by another `config`/`up ./file` command. If `/etc/netns/portl/resolve.conf` does not exist (either because it was deleted or DNS was never specified in a config file) then the namespace will use a copy of the same `/etc/resolve.conf` file as the main OS.
 
 ### show
 Shortcut to run `wg show` within the namespace.
@@ -144,7 +144,7 @@ Pretty much any command that you would normally run in your shell can be used an
 Same as `exec`.
 
 ### fwd PROTOCOL fromPort [toPort]
-Uses socat to forward traffic recieved inside the portl namespace on `localhost:<fromPort>` to `localhost:<toPort>` inside the current namespace, which is typically the normal host namespace. This is useful if you're running something like an SSH reverse port forward inside the namespace and want that to route to a service listening on localhost outside that namespace. 
+Uses socat to forward traffic received inside the portl namespace on `localhost:<fromPort>` to `localhost:<toPort>` inside the current namespace, which is typically the normal host namespace. This is useful if you're running something like an SSH reverse port forward inside the namespace and want that to route to a service listening on localhost outside that namespace. 
 
 This is accomplished by creating an on-disk Unix socket file that is accessible from any network namespace, which is used to relay traffic between the two namespaces. 
 
@@ -155,7 +155,7 @@ Argument notes:
 - `toPort` will be the same as `fromPort` if not specified
 
 ### down
-Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g. iptables rules) will be lost.
+Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g., iptables rules) will be lost.
 
 # Known Limitations
 - `portl sudo masscan` will often not be able to automatically identify the correct interface to use. Specify the correct interface inside the namespace for `masscan` to use with `-i portl0` (or whatever the correct interface name is)

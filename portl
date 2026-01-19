@@ -43,7 +43,14 @@ config() {
 }
 
 up() {
-    set -ex
+    set -e
+
+    # If an argument was provided, treat it as the config file to use
+    if [ -n "$1" ]; then
+        config "$1"
+    fi
+
+    set -x
     
     ip netns add "$NAMESPACE"
     ip link add "$INTERFACE" type wireguard
@@ -80,6 +87,9 @@ up() {
     ip -n "$NAMESPACE" link set "$INTERFACE" up
     ip -n "$NAMESPACE" link set lo up
     ip -n "$NAMESPACE" route add default dev "$INTERFACE"
+
+    set +x
+    echo "Namespace Up!"
 }
 
 down() {
@@ -88,6 +98,9 @@ down() {
     ip -n "$NAMESPACE" link del "$INTERFACE"
     #ip link del "$INTERFACE" #in case the config file had an issue and the interface was created but not moved
     ip netns del "$NAMESPACE"
+
+    set +x
+    echo "Namespace Removed!"
 }
 
 exec_n() {
@@ -167,10 +180,10 @@ forward() {
         exit 1
     fi
 
-    #socat TCP4-LISTEN:80,bind=127.0.0.1,reuseaddr,fork TCP6:[::1]:8080 &
     echo "$protocol: $nsPort -> $extPort"
 
-    #This will wait forever unless both children somehow die
+    # This will wait forever unless both children somehow die on their own
+    # If this script receives an SIGINT, it will be forwarded to the children as well
     for pid in "${children[@]}"
     do
             wait $pid
@@ -183,19 +196,19 @@ usage() {
     echo ""
     echo "COMMANDS"
     echo -e "\tconfig FILE"
-    echo -e "\t\tSet FILE as the wireguard configuration file to use when creating or deleting the portl namespace\n"
+    echo -e "\t\tSet FILE as the wireguard configuration file to use for 'up' and 'down' commands\n"
     
-    echo -e "\tup"
-    echo -e "\t\tCreate the portl namespace (must run 'config' first)\n"
+    echo -e "\tup [FILE]"
+    echo -e "\t\tCreate the portl namespace; must either run 'config' first or specify a config file\n"
     
     echo -e "\tdown"
-    echo -e "\t\tDelete the configured portl namespace\n"
+    echo -e "\t\tDelete the last-configured portl namespace\n"
     
     echo -e "\tshow"
     echo -e "\t\tShortcut to run 'wg show' within the portl namespace\n"
     
     echo -e "\texec CMD..."
-    echo -e "\t\tRun any command within the portl namesapce\n"
+    echo -e "\t\tRun any command within the portl namesapce; default if no command is specified\n"
     
     echo -e "\trun CMD..."
     echo -e "\t\tAlias for exec\n"
@@ -215,12 +228,11 @@ usage() {
     
     echo "Example"
     echo "-------"
-    echo "portl.sh config ./tunnel.conf"
-    echo "portl.sh up"
-    echo "portl.sh show"
-    echo "portl.sh exec ping -c 4 10.0.0.1"
-    echo "portl.sh curl 10.0.0.1:8080/info.txt"
-    echo "portl.sh down"
+    echo "portl up ./tunnel.conf"
+    echo "portl show"
+    echo "portl exec ping -c 4 10.0.0.1"
+    echo "portl curl 10.0.0.1:8080/info.txt"
+    echo "portl down"
     
 }
 
@@ -237,8 +249,8 @@ case "$command" in
     configure) shift && config "$@" ;;
     c) shift && config "$@" ;; #shortcut
     
-    up) up ;;
-    u) up ;; #shortcut
+    up) shift && up "$@" ;;
+    u) shift && up "$@" ;; #shortcut
     
     down) down ;;
     d) down ;; #shortcut
