@@ -18,7 +18,7 @@ First, put the `portl` file somewhere in your PATH (I recommend `/usr/local/bin`
 > [!IMPORTANT]
 > For best results, ensure the `portl` script is in a location specified in the `secure_path` value (if present) in `/etc/sudoers`. Otherwise you may encounter strange errors due to [sudo's PATH reset feature](https://askubuntu.com/questions/128413/setting-the-path-so-it-applies-to-all-users-including-root-sudo) on many distros.
 
-Start a Wireguard server on a machine you want to use a relay. If you're not familiar with this process, [this](https://github.com/burghardt/easy-wg-quick) or [this](https://github.com/wg-easy/wg-easy) should get you started (or try [Wiretap](https://github.com/sandialabs/wiretap)!).
+Start a Wireguard server on a machine you want to use as a relay. If you're not familiar with this process, [this](https://github.com/burghardt/easy-wg-quick) or [this](https://github.com/wg-easy/wg-easy) should get you started (or try [Wiretap](https://github.com/sandialabs/wiretap)!).
 
 Generate a basic Wireguard configuration file compatible with `wg-quick` that will connect to your client machine to the Wireguard server. For this example, save it as `tunnel.conf`.
 - You may safely set `AllowedIPs = 0.0.0.0/0` in this configuration file
@@ -34,6 +34,30 @@ Now you now can tunnel traffic for arbitrary programs through this connection by
 - `portl run <any command>` and `portl exec <any command>` are more verbose ways of doing the same thing. 
 
 Run `portl down` to remove the namespace and tunnel. If the config file hasn't changed, you can then run `portl up` (without specifying a file) to bring the same namespace and tunnel back up. 
+
+## Quick Start for Wiretap
+[Wiretap repo](https://github.com/sandialabs/wiretap)
+
+Generate config files using the `configure` command:
+```bash
+./wiretap configure -e <local-ip>:51820 -r <target-CIDR>
+```
+
+Copy the appropriate command from that output and run it on a remote machine to start a Server:
+```bash
+<env_configs> ./wiretap serve
+```
+
+Then with portl on your local machine:
+```bash
+portl up ./wiretap_relay.conf
+portl sudo wg-quick up ./wiretap.conf
+portl show
+
+# when you're done with the tunnels
+portl down
+```
+
 
 ## Usage
 
