@@ -186,6 +186,7 @@ case "$command" in
     
     help) usage ; exit 1 ;;
     h) usage ; exit 1 ;;
+    --help) usage ; exit 1 ;;
     -h) usage ; exit 1 ;;
     
     *) exec_n "$@" ;; #asume exec
