@@ -79,6 +79,7 @@ up() {
         if [[ "$dns_setup" == 0 ]]; then
             mkdir -p /etc/netns/"$NAMESPACE" #make dir structure if it doesn't exist
             > /etc/netns/"$NAMESPACE"/resolv.conf #create or truncate the file
+            chmod o+r /etc/netns/"$NAMESPACE"/resolv.conf #make sure it's world-readable
             dns_setup=1 #don't truncate the file on subsequent loops
         fi
         echo nameserver "$dns" >> /etc/netns/"$NAMESPACE"/resolv.conf
@@ -104,6 +105,7 @@ down() {
     #ip link del "$INTERFACE" #in case the config file had an issue and the interface was created but not moved
     ip netns del "$NAMESPACE"
     rm -f /var/run/netns/"$NAMESPACE"
+    rm -f /etc/netns/"$NAMESPACE"/resolv.conf
 }
 
 exec_n() {
