@@ -247,8 +247,7 @@ usage() {
     
     echo "Example"
     echo "-------"
-    echo "dportl config ./tunnel.conf"
-    echo "dportl up e90b8831a4b8"
+    echo "dportl up e90b8831a4b8 ./tunnel.conf"
     echo "docker exec -it e90b8831a4b8 ping -c 4 10.0.0.1"
     echo "docker exec -it e90b8831a4b8 curl 10.0.0.1:8080/info.txt"
     echo "dportl down"
