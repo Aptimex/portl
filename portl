@@ -163,7 +163,7 @@ forward() {
         echo "Child Process 1: $!"
 
         # TCP6-LISTEN (or UDP6-LISTEN) captures IPv4 traffic as well
-        $portlCMD exec sudo socat TCP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        ip netns exec "$NAMESPACE" socat TCP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
         children+=($!)
         echo "Child Process 2: $!"
 
@@ -172,7 +172,7 @@ forward() {
         children+=($!)
         echo "Child Process 1: $!"
 
-        $portlCMD exec sudo socat UDP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        ip netns exec "$NAMESPACE" socat UDP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
         children+=($!)
         echo "Child Process 2: $!"
 

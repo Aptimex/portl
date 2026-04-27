@@ -174,6 +174,8 @@ This is accomplished by creating an on-disk Unix socket file that is accessible 
 
 This implementation should work for any combination of IPv4 and IPv6 traffic, including mixing them between the source and destination. But it does not allow converting between TCP traffic into UDP traffic, or vice versa. 
 
+Note that unlike `exec` commands, the socat forwarder always runs as root inside the namespace. This is required to support binding ports <1024 inside the namespace. 
+
 Argument notes:
 - `PROTOCOL` must be `tcp`, `t`, `udp`, or `u`
 - `toPort` will be the same as `fromPort` if not specified
