@@ -12,6 +12,9 @@ NAMESPACE="dportl"
 INTERFACE="dportl0"
 CONF="/etc/wireguard/${NAMESPACE}.conf"
 
+# Some functions may need to recursively call this script
+portlCMD=$0
+
 Red='\033[1;31m'
 Off='\033[0m'
 
@@ -42,8 +45,15 @@ config() {
 }
 
 up() {
-    set -ex
-    
+    set -e
+
+    # If a second argument was provided, treat it as the config file to use
+    if [ -n "$2" ]; then
+        config "$2"
+    fi
+
+    set -x
+
     # Link the container's network namespace file to where 'ip netns' can use it.
     pid=$(docker inspect -f '{{.State.Pid}}' "$1")
     if [[ ! $pid || $pid == 0 ]]; then
@@ -96,6 +106,9 @@ up() {
     ip -n "$NAMESPACE" link set "$INTERFACE" up
     ip -n "$NAMESPACE" link set lo up
     ip -n "$NAMESPACE" route add default dev "$INTERFACE"
+
+    set +x
+    echo "Namespace Up!"
 }
 
 down() {
@@ -106,6 +119,9 @@ down() {
     ip netns del "$NAMESPACE"
     rm -f /var/run/netns/"$NAMESPACE"
     rm -f /etc/netns/"$NAMESPACE"/resolv.conf
+
+    set +x
+    echo "Namespace Removed!"
 }
 
 exec_n() {
@@ -118,28 +134,111 @@ show() {
     ip netns exec "$NAMESPACE" wg show
 }
 
+forward() {
+    # Forwards a port from inside the namespace back to your normal host namespace
+    # Does this using two SOCAT commands that talk via a "unix domain socket" file
+    # This script will keep running while the child processes are alive, and forward INT signals to them
+    # Recommand backgrounding this script and using job control to end it
+
+    children=() #array of PIDs to kill on exit
+
+    cleanup() {
+        # kill all processes whose parent is this process
+        pkill -P $$
+    }
+
+    for sig in INT QUIT HUP TERM; do
+    trap "
+        cleanup
+        trap - $sig EXIT
+        kill -s $sig "'"$$"' "$sig"
+    done
+    trap cleanup EXIT
+
+    fUsage() {
+        echo "Usage: $portlCMD fwd protocol fromPort [toPort]"
+        echo "protocol must be tcp, t, udp, or u"
+        echo "toPort will be same as fromPort if not specified"
+        exit 1
+    }
+
+    if [ "$#" -lt 2 ]; then
+        fUsage
+    fi
+
+    set -e
+
+    protocol=$1
+    nsPort=$2
+    extPort=${3:-$nsPort} #if extPort is not provided, use nsPort
+    sFile="./$NAMESPACE.$protocol-$nsPort-$extPort.sock"
+    pl="${protocol,,}"
+
+    #set -x
+    if [[ "$pl" == "tcp" || "$pl" == "t" ]]; then
+        # IPv-agnotic TCP (or UDP) destination with localhost target works for both ipv4 and ipv6
+        socat UNIX-LISTEN:$sFile,reuseaddr,fork TCP:localhost:$extPort &
+        children+=($!)
+        echo "Child Process 1: $!"
+
+        # TCP6-LISTEN (or UDP6-LISTEN) captures IPv4 traffic as well
+        $portlCMD exec sudo socat TCP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        children+=($!)
+        echo "Child Process 2: $!"
+
+    elif [[ "$pl" == "udp" || "$pl" == "u" ]]; then
+        socat UNIX-LISTEN:$sFile,reuseaddr,fork UDP:localhost:$extPort &
+        children+=($!)
+        echo "Child Process 1: $!"
+
+        $portlCMD exec sudo socat UDP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        children+=($!)
+        echo "Child Process 2: $!"
+
+    else
+        echo "error: protocol must be tcp, t, udp, or u"
+        fUsage
+        exit 1
+    fi
+
+    echo "$protocol: $nsPort -> $extPort"
+
+    # This will wait forever unless both children somehow die on their own
+    # If this script receives an SIGINT, it will be forwarded to the children as well
+    for pid in "${children[@]}"
+    do
+            wait $pid
+    done
+    exit 0
+}
+
 usage() {
-    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | help ]"
+    echo "Usage: $(basename "$0") [ config FILE | up CONTAINER_ID [FILE] | down | show | exec CMD | run CMD | fwd OPTIONS | help ]"
     echo ""
     echo "COMMANDS"
     echo -e "\tconfig FILE"
-    echo -e "\t\tSet FILE as the wireguard configuration file to use when creating or deleting the portl namespace\n"
-    
-    echo -e "\tup CONTAINER_ID"
-    echo -e "\t\tCreate the portl namespace and symlink it to the docker container namespace used by CONTAINER_ID (the truncated 12-character ID, as shown in 'docker ps'). This deletes all network interfaces inside the container (except 'lo') and replaces them with a portl interface, forcing all the container's networking to go through it. Must run 'config' first\n"
-    
+    echo -e "\t\tSet FILE as the wireguard configuration file to use when creating or deleting the dportl namespace\n"
+
+    echo -e "\tup CONTAINER_ID [FILE]"
+    echo -e "\t\tCreate the dportl namespace and symlink it to the docker container namespace used by CONTAINER_ID (the truncated 12-character ID, as shown in 'docker ps'). This deletes all network interfaces inside the container (except 'lo') and replaces them with a dportl interface, forcing all the container's networking to go through it. Must either run 'config' first or specify a config file\n"
+
     echo -e "\tdown"
-    echo -e "\t\tDeletes the configured portl namespace. The target docker container namespace continues to exist, but the portl interface inside it will be deleted.\n"
-    
+    echo -e "\t\tDeletes the configured dportl namespace. The target docker container namespace continues to exist, but the dportl interface inside it will be deleted.\n"
+
     echo -e "\tshow"
-    echo -e "\t\tShortcut to run 'wg show' within the portl namespace\n"
-    
+    echo -e "\t\tShortcut to run 'wg show' within the dportl namespace\n"
+
     echo -e "\texec CMD..."
-    echo -e "\t\tRun any command within the portl namesapce. However, the purpose of this script is really to make any commands run inside the docker container go through the wireguard tunnel, so you shouldn't need to use this.\n"
-    
+    echo -e "\t\tRun any command within the dportl namespace. However, the purpose of this script is really to make any commands run inside the docker container go through the wireguard tunnel, so you shouldn't need to use this.\n"
+
     echo -e "\trun CMD..."
     echo -e "\t\tAlias for exec\n"
-    
+
+    echo -e "\tfwd PROTOCOL fromPort [toPort]"
+    echo -e "\t\tForward localhost port traffic from inside the dportl namespace to a localhost port in the host namespace\n"
+    echo -e "\t\tPROTOCOL must be tcp, t, udp, or u\n"
+    echo -e "\t\ttoPort will be the same as fromPort if not specified\n"
+
     echo -e "\thelp"
     echo -e "\t\tDisplay this help message\n"
     echo ""
@@ -148,11 +247,11 @@ usage() {
     
     echo "Example"
     echo "-------"
-    echo "dportl.sh config ./tunnel.conf"
-    echo "dportl.sh up e90b8831a4b8"
+    echo "dportl config ./tunnel.conf"
+    echo "dportl up e90b8831a4b8"
     echo "docker exec -it e90b8831a4b8 ping -c 4 10.0.0.1"
     echo "docker exec -it e90b8831a4b8 curl 10.0.0.1:8080/info.txt"
-    echo "dportl.sh down"
+    echo "dportl down"
     echo "docker stop e90b8831a4b8"
     
 }
@@ -183,7 +282,10 @@ case "$command" in
     e) shift && exec_n "$@" ;; #shortcut
     run) shift && exec_n "$@" ;; #same as exec
     r) shift && exec_n "$@" ;; #shortcut
-    
+
+    fwd) shift && forward "$@" ;;
+    f) shift && forward "$@" ;;
+
     help) usage ; exit 1 ;;
     h) usage ; exit 1 ;;
     --help) usage ; exit 1 ;;
