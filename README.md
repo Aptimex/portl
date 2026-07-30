@@ -58,11 +58,12 @@ portl show
 portl down
 ```
 
+See also the `upin` command for nesting one Wiretap tunnel inside another.
 
 ## Usage
 
 ```
-Usage: portl [ config FILE | up | down | show | exec CMD | run CMD | fwd OPTIONS | help ]
+Usage: portl [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd OPTIONS | help ]
 
 COMMANDS
         config FILE
@@ -70,6 +71,10 @@ COMMANDS
 
         up [FILE]
                 Create the portl namespace; must either run 'config' first or specify a config file
+
+        upin NAMESPACE [FILE]
+                Create the portl namespace with its Wireguard interface born in NAMESPACE, so encrypted UDP traffic uses that namespace
+                Must either run 'config' first or specify a config file
 
         down
                 Delete the configured portl namespace
@@ -111,8 +116,9 @@ portl down
 Commands:
 - `config path/to/config/file`: specify a Wireguard configuration file to use (see caveats).
 - `up [path/to/config/file]`: brings up a namespaced Wireguard interface; either uses the config file specified by previous `config` command, or configures the one passed as an argument
+- `upin NAMESPACE [path/to/config/file]`: works like `up`, but creates the Wireguard interface in `NAMESPACE` before moving it into the configured Portl namespace
 - `show`: shortcut to run `wg show` within the configured namespace.
-- `down`: removes the Wireguard interface and namespace created by `up`.
+- `down`: removes the Wireguard interface and namespace created by `up` or `upin`.
 - `exec CMD...`: run an arbitrary command within the namespace created by `up`.
 - `run CMD...`: same as `exec`.
 - `fwd PROTOCOL fromPort [toPort]`: Forward traffic from inside the namespace to your normal host namespace.
@@ -147,6 +153,18 @@ The specified config file will be copied to `/etc/wireguard/portl.conf`. `Addres
 
 ### up
 Uses the config file at `/etc/wireguard/portl.conf` (created via the `config` command) to create a Wireguard interface named `portl0` located in the `portl` network namespace. Alternatively, you can skip the `config` command and just run `up ./tunnel.conf` and it will run the `config` command on the specified file before bringing up the namespace. 
+
+### upin NAMESPACE [FILE]
+Works like `up`, but creates and configures the Wireguard interface inside the existing `NAMESPACE` before moving it into the configured Portl namespace. Wireguard keeps its encrypted UDP sockets in the namespace where the interface was created, so this allows one Portl tunnel to use another Portl namespace as its network transport without a userspace UDP forward.
+
+For example, if a second copy of the script is configured with `NAMESPACE="portl2"`, its relay can use the first Portl tunnel as its transport:
+
+```bash
+portl2 upin portl ./wiretap_relay.conf
+portl2 sudo wg-quick up ./wiretap.conf
+```
+
+The birth namespace must already exist and must remain up for the lifetime of the nested tunnel. Bring nested namespaces down before their birth namespaces.
 
 If the target config file contains `DNS=IP` options (also allowing multiple comma-separated IPs), those will be parsed and applied as `nameserver [IP]` values to a `resolv.conf` file specific to the `portl` namespace. This is done by writing the values to `/etc/netns/portl/resolv.conf`, which Linux will make available inside the namespace at the standard `/etc/resolv.conf` location without affecting that file outside the namespace. If `/etc/netns/portl/resolv.conf` does not exist (either because it was deleted or DNS was never specified in a config file) then the namespace will use a copy of the same `/etc/resolv.conf` file as the main OS. `portl down` will remove the `/etc/netns/portl/resolv.conf` file to prevent it from silently being applied to future configurations that lack any `DNS=IP` lines.
 
