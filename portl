@@ -168,11 +168,12 @@ forward() {
         echo "Child Process 2: $!"
 
     elif [[ "$pl" == "udp" || "$pl" == "u" ]]; then
-        socat UNIX-LISTEN:$sFile,reuseaddr,fork UDP:localhost:$extPort &
+        # SOCK_SEQPACKET (type=5) preserves UDP datagram boundaries across the Unix socket.
+        socat -b 65535 UNIX-LISTEN:"$sFile",type=5,reuseaddr,fork UDP:localhost:"$extPort" &
         children+=($!)
         echo "Child Process 1: $!"
 
-        ip netns exec "$NAMESPACE" socat UDP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
+        ip netns exec "$NAMESPACE" socat -b 65535 UDP6-LISTEN:"$nsPort",reuseaddr,fork UNIX-CONNECT:"$sFile",type=5 &
         children+=($!)
         echo "Child Process 2: $!"
 
