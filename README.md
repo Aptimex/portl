@@ -53,16 +53,16 @@ Then with portl on your local machine:
 portl up ./wiretap_relay.conf
 portl sudo wg-quick up ./wiretap.conf
 portl show
+portl ./wiretap status
 
 # when you're done with the tunnels
 portl down
 ```
 
-
 ## Usage
 
 ```
-Usage: portl [ config FILE | up | down | show | exec CMD | run CMD | fwd OPTIONS | help ]
+Usage: portl [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd OPTIONS | help ]
 
 COMMANDS
         config FILE
@@ -70,6 +70,10 @@ COMMANDS
 
         up [FILE]
                 Create the portl namespace; must either run 'config' first or specify a config file
+
+        upin NAMESPACE [FILE]
+                Create the portl namespace with its Wireguard interface born in NAMESPACE, so encrypted UDP traffic uses that namespace
+                Must either run 'config' first or specify a config file
 
         down
                 Delete the configured portl namespace
@@ -111,8 +115,9 @@ portl down
 Commands:
 - `config path/to/config/file`: specify a Wireguard configuration file to use (see caveats).
 - `up [path/to/config/file]`: brings up a namespaced Wireguard interface; either uses the config file specified by previous `config` command, or configures the one passed as an argument
+- `upin NAMESPACE [path/to/config/file]`: works like `up`, but creates the Wireguard interface in `NAMESPACE` before moving it into the configured Portl namespace, to enable tunnel nesting
 - `show`: shortcut to run `wg show` within the configured namespace.
-- `down`: removes the Wireguard interface and namespace created by `up`.
+- `down`: removes the Wireguard interface and namespace created by `up` or `upin`.
 - `exec CMD...`: run an arbitrary command within the namespace created by `up`.
 - `run CMD...`: same as `exec`.
 - `fwd PROTOCOL fromPort [toPort]`: Forward traffic from inside the namespace to your normal host namespace.
@@ -120,10 +125,7 @@ Commands:
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `portl` and the interface is `portl0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
 > [!TIP]
-> If you want to setup multiple portl tunnels to different systems just make a copy of the script file (with a different name, such as `portl2`) and change the `NAMESPACE` and `INTERFACE` values near the top of the file to something unique. 
-
-> [!TIP]
-> Rename the script to `portl` and put it in a folder in your PATH to make it easy to use portl no matter what your current working directory is. 
+> If you want to setup multiple portl tunnels to different systems just make a copy of the script file, give it a new name (such as `portl2`), and change the `NAMESPACE` and `INTERFACE` values near the top of the file to something unique (like `portl2` for both). 
 
 The script requires root privileges to function. The first thing it does is check if it's running as root, and if not it automatically attempts to elevate to root using `sudo`. This may prompt the user for credentials.
 
@@ -150,22 +152,34 @@ Uses the config file at `/etc/wireguard/portl.conf` (created via the `config` co
 
 If the target config file contains `DNS=IP` options (also allowing multiple comma-separated IPs), those will be parsed and applied as `nameserver [IP]` values to a `resolv.conf` file specific to the `portl` namespace. This is done by writing the values to `/etc/netns/portl/resolv.conf`, which Linux will make available inside the namespace at the standard `/etc/resolv.conf` location without affecting that file outside the namespace. If `/etc/netns/portl/resolv.conf` does not exist (either because it was deleted or DNS was never specified in a config file) then the namespace will use a copy of the same `/etc/resolv.conf` file as the main OS. `portl down` will remove the `/etc/netns/portl/resolv.conf` file to prevent it from silently being applied to future configurations that lack any `DNS=IP` lines.
 
+### upin NAMESPACE [FILE]
+Works like `up`, but creates and configures the Wireguard interface inside the existing `NAMESPACE` before moving it into the configured Portl namespace. This allows one Portl tunnel to be setup through the Wireguard tunnel in another Portl namespace, instead of through the normal host namespace/interfaces. This more or less "just works" as you'd expect, but you'll loose 50-75% of network bandwidth per nested tunnel due to packet fragmentation overhead if you don't properly reduce the MTU of each tunnel. MTU needs to be reduce by 80 for IPv6-capable tunnels (with a lower limit of 1280), or reduced by 60 for IPv4-only tunnels.
+
+For example, if a second copy of the script is configured with `NAMESPACE="portl2"`, it can use the first Portl tunnel (in namespace `portl`) as its transport when creating a new second tunnel:
+
+```bash
+portl2 upin portl ./tunnel2.conf
+```
+
+The target parent namespace must already exist and must remain up for the lifetime of the nested tunnel. Bring nested namespaces down before their birth namespaces.
+
+Note that the remote Wireguard peer(s) that this second tunnel connects to will not be able to connect directly to your host through the first Wireguard tunnel. So these kinds of nested tunnels must be established by having the local interface connect out to those peers. Alternatively, if you're using Wiretap to create the tunnels, you can use [the `expose` command](https://github.com/sandialabs/wiretap/tree/main#expose-port-forwarding) to create reverse port forwards that will allow remote peers to connect back to your host inside the parent namespace where the nested tunnel is listening.
+
 ### show
 Shortcut to run `wg show` within the namespace.
 
 ### exec CMD...
-Runs the specified command as the **current user**, even when `sudo` is used to run the script with root privileges. To run a command as root just specify `sudo` as part of the command. For example, `portl sudo iptables -L`.
+Runs the specified command as the **current user**, even when `sudo` is used to run the script with root privileges. If none of the other reserved command words are specified, `exec` is assumed.
+
+To run a command as root just specify `sudo` as part of the command. For example, `portl sudo iptables -L`.
 
 Pretty much any command that you would normally run in your shell can be used and should work as expected. You can even use something like `bash` as the target command to open a shell within the namespace, then return to the parent shell with `exit`.
 
 > [!IMPORTANT]
-> Using a pipe (or other command-terminating shell characters) will NOT allow the next command to run inside the namespace. For example, if you run `portl echo "google.com" | xargs ping`, the `ping` command will NOT run inside the namespace, it will use your normal host namespace. 
-
-> [!TIP]
-> If you need to use something like pipes, run `portl bash` to start a new shell inside the namespace, and then **everything** you run from that shell will also run inside that namespace. 
+> Using a pipe (or other command-terminating shell characters) will NOT allow the next command to run inside the namespace. For example, if you run `portl echo "google.com" | xargs ping`, the `ping` command will NOT run inside the namespace, it will use your normal host namespace. If you need to use something like pipes, run `portl bash` to start a new shell inside the namespace, and then **everything** you run from that shell will also run inside that namespace. 
 
 ### run CMD...
-Same as `exec`.
+Alias for `exec`.
 
 ### fwd PROTOCOL fromPort [toPort]
 Uses socat to forward traffic received inside the portl namespace on `localhost:<fromPort>` to `localhost:<toPort>` inside the current namespace, which is typically the normal host namespace. This is useful if you're running something like an SSH reverse port forward inside the namespace and want that to route to a service listening on localhost outside that namespace. 
@@ -181,10 +195,10 @@ Argument notes:
 - `toPort` will be the same as `fromPort` if not specified
 
 ### down
-Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g., iptables rules) will be lost.
+Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down` unless you want to change it), but any namespace-specific changes that were made inside the namespace (e.g., iptables rules) will be lost.
 
 # Known Limitations
-- `portl sudo masscan` will often not be able to automatically identify the correct interface to use. Specify the correct interface inside the namespace for `masscan` to use with `-i portl0` (or whatever the correct interface name is)
+- `portl sudo masscan` will often not be able to automatically identify the correct default interface to use. Specify the correct interface inside the namespace for `masscan` to use with `-i portl0` (or whatever the correct interface name is)
 - `portl sudo mount ...` doesn't always work correctly when mounting network shares; the mount may succeed but not actually be visible on the filesystem. `portl bash` followed by `sudo mount ...` seems to work just fine, but the mount may only be accessible from that new bash session/process. I currently have no idea why this happens. 
 
 # Docker Version (dportl)

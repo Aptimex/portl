@@ -42,21 +42,7 @@ config() {
     echo "Config file parsed and written to ${CONF}"
 }
 
-up() {
-    set -e
-
-    # If an argument was provided, treat it as the config file to use
-    if [ -n "$1" ]; then
-        config "$1"
-    fi
-
-    set -x
-    
-    ip netns add "$NAMESPACE"
-    ip link add "$INTERFACE" type wireguard
-    ip link set "$INTERFACE" netns "$NAMESPACE"
-    ip netns exec "$NAMESPACE" wg setconf "$INTERFACE" "$CONF"
-    
+configure_interface() {
     #Parse addresses
     while read -r address; do
         ip -n "$NAMESPACE" addr add "$address" dev "$INTERFACE"
@@ -88,6 +74,66 @@ up() {
     ip -n "$NAMESPACE" link set "$INTERFACE" up
     ip -n "$NAMESPACE" link set lo up
     ip -n "$NAMESPACE" route add default dev "$INTERFACE"
+}
+
+up() {
+    set -e
+
+    # If an argument was provided, treat it as the config file to use
+    if [ -n "$1" ]; then
+        config "$1"
+    fi
+
+    set -x
+
+    ip netns add "$NAMESPACE"
+    ip link add "$INTERFACE" type wireguard
+    ip link set "$INTERFACE" netns "$NAMESPACE"
+    ip netns exec "$NAMESPACE" wg setconf "$INTERFACE" "$CONF"
+
+    configure_interface
+
+    set +x
+    echo "Namespace Up!"
+}
+
+upin() {
+    set -e
+
+    if [[ $# -lt 1 || $# -gt 2 ]]; then
+        echo "Usage: $portlCMD upin NAMESPACE [FILE]" >&2
+        exit 1
+    fi
+
+    local birthNamespace=$1
+    local configFile=$2
+
+    if [[ "$birthNamespace" == "$NAMESPACE" ]]; then
+        echo "Birth namespace must be different from the target namespace: $NAMESPACE" >&2
+        exit 1
+    fi
+
+    if ! ip netns exec "$birthNamespace" true; then
+        echo "Birth namespace does not exist or is not accessible: $birthNamespace" >&2
+        exit 2
+    fi
+
+    if [ -n "$configFile" ]; then
+        config "$configFile"
+    fi
+
+    # Temporary name avoids colliding with an interface of the same name in the birth namespace.
+    local birthInterface="ptl-$$"
+
+    set -x
+
+    ip netns add "$NAMESPACE"
+    ip netns exec "$birthNamespace" ip link add "$birthInterface" type wireguard
+    ip netns exec "$birthNamespace" wg setconf "$birthInterface" "$CONF"
+    ip netns exec "$birthNamespace" ip link set "$birthInterface" netns "$NAMESPACE"
+    ip -n "$NAMESPACE" link set "$birthInterface" name "$INTERFACE"
+
+    configure_interface
 
     set +x
     echo "Namespace Up!"
@@ -195,7 +241,7 @@ forward() {
 }
 
 usage() {
-    echo "Usage: $(basename "$0") [ config FILE | up | down | show | exec CMD | run CMD | fwd OPTIONS | help ]"
+    echo "Usage: $(basename "$0") [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd OPTIONS | help ]"
     echo ""
     echo "COMMANDS"
     echo -e "\tconfig FILE"
@@ -203,6 +249,9 @@ usage() {
     
     echo -e "\tup [FILE]"
     echo -e "\t\tCreate the portl namespace; must either run 'config' first or specify a config file\n"
+
+    echo -e "\tupin NAMESPACE [FILE]"
+    echo -e "\t\tCreate the portl namespace with the WireGuard interface born in NAMESPACE, so its encrypted UDP traffic uses that namespace; must either run 'config' first or specify a config file\n"
     
     echo -e "\tdown"
     echo -e "\t\tDelete the last-configured portl namespace\n"
@@ -254,6 +303,8 @@ case "$command" in
     
     up) shift && up "$@" ;;
     u) shift && up "$@" ;; #shortcut
+
+    upin) shift && upin "$@" ;;
     
     down) down ;;
     d) down ;; #shortcut
