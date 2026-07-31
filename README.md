@@ -9,7 +9,7 @@ Portl is useful if you want select programs to (be forced to) use Wireguard as a
 ![Diagram](media/portl.svg)
 </div>
 
-Requires GNU `sed`, `grep`, `cut`, and `tr` to be installed. If you get errors about unsupported flags in these commands it's probably because you have a BSD (POSIX) version installed.
+Requires GNU `sed`, `grep`, `cut`, and `tr` to be installed. If you get errors about unsupported flags in these commands it's probably because you have a BSD (POSIX) version installed. Port forwarding additionally requires `socat`, `setsid`, and `flock`.
 
 ## Quick Start
 
@@ -88,6 +88,9 @@ COMMANDS
                 PROTOCOL must be tcp, t, udp, or u
                 toPort will be the same as fromPort if not specified
 
+        fwd show
+                List active forwards and the backend selected for each one
+
         help
                 Display this help message
 
@@ -116,6 +119,7 @@ Commands:
 - `exec CMD...`: run an arbitrary command within the namespace created by `up`.
 - `run CMD...`: same as `exec`.
 - `fwd PROTOCOL fromPort [toPort]`: Forward traffic from inside the namespace to your normal host namespace.
+- `fwd show`: List active forwards, including their protocol, ports, backend, PID, and start time.
 
 Note that the namespace and interface names are defined at the top of the script and can be changed. By default the namespace is `portl` and the interface is `portl0`. The rest of this documentation will describe the script's behavior assuming those values remain unchanged.
 
@@ -170,15 +174,25 @@ Same as `exec`.
 ### fwd PROTOCOL fromPort [toPort]
 Uses socat to forward traffic received inside the portl namespace on `localhost:<fromPort>` to `localhost:<toPort>` inside the current namespace, which is typically the normal host namespace. This is useful if you're running something like an SSH reverse port forward inside the namespace and want that to route to a service listening on localhost outside that namespace. 
 
-This is accomplished by creating an on-disk Unix socket file that is accessible from any network namespace, which is used to relay traffic between the two namespaces. 
+Portl automatically selects one of two forwarding backends:
+
+- `netns` uses one `socat` process and its experimental per-address `netns=` option to open the listening address inside the Portl namespace while keeping the destination in the namespace where `portl fwd` was invoked.
+- `socket` is the compatibility backend. It uses two `socat` relays connected by a Unix file socket that is visible from both network namespaces. Socket and state files are stored under `/run/portl/<namespace>/forwards`.
+
+The default mode is `auto`, which uses `netns` when compatible support is available and otherwise falls back to `socket`. Set the `PORTL_FWD_MODE` env var to `netns` or `socket` to force a backend; `auto` is the assumed default.
 
 This implementation should work for any combination of IPv4 and IPv6 traffic, including mixing them between the source and destination. But it does not allow converting between TCP traffic into UDP traffic, or vice versa. 
 
 Note that unlike `exec` commands, the socat forwarder always runs as root inside the namespace. This is required to support binding ports <1024 inside the namespace. 
 
+Each forwarding relay runs in its own process group with the `portl fwd` process as its parent (which just blocks waiting for children). When that parent receives a normal termination signal, it signals the complete group so that forked `socat` connection workers are cleaned up along with the parent relay. As with other trap-based cleanup, this cannot run if the Portl parent process itself receives `SIGKILL`.
+
 Argument notes:
 - `PROTOCOL` must be `tcp`, `t`, `udp`, or `u`
 - `toPort` will be the same as `fromPort` if not specified
+
+### fwd show
+Lists the active forwards for the configured namespace, including their protocol, source and destination ports, selected backend, and managing PID. The command uses each forward's lock to detect and remove stale records caused by an unclean shutdown. Stale compatibility sockets associated with valid state records are removed at the same time.
 
 ### down
 Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down`), but any namespace-specific changes that were made inside the namespace (e.g., iptables rules) will be lost.

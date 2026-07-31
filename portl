@@ -115,83 +115,263 @@ show() {
     ip netns exec "$NAMESPACE" wg show
 }
 
+forward_usage() {
+    echo "Usage: $portlCMD fwd protocol fromPort [toPort]"
+    echo "       $portlCMD fwd show"
+    echo "protocol must be tcp, t, udp, or u"
+    echo "toPort will be same as fromPort if not specified"
+}
+
+forward_runtime_dir() {
+    printf '/run/portl/%s/forwards\n' "$NAMESPACE"
+}
+
+forward_list() {
+    local runtime_dir state_file socket_file state_basename lock_file state_lock_fd
+    local pid protocol from_port to_port backend started_at key value
+    local active=0 stale=0
+
+    runtime_dir=$(forward_runtime_dir)
+    if [[ ! -d "$runtime_dir" ]]; then
+        echo "No active forwards for namespace $NAMESPACE."
+        return 0
+    fi
+
+    shopt -s nullglob
+    for state_file in "$runtime_dir"/*.state; do
+        pid= protocol= from_port= to_port= backend= started_at=
+        while IFS='=' read -r key value; do
+            case "$key" in
+                pid) pid=$value ;;
+                protocol) protocol=$value ;;
+                from_port) from_port=$value ;;
+                to_port) to_port=$value ;;
+                backend) backend=$value ;;
+                started_at) started_at=$value ;;
+            esac
+        done < "$state_file"
+
+        lock_file=${state_file%.state}.lock
+        exec {state_lock_fd}>"$lock_file" || return 1
+        if flock -n "$state_lock_fd"; then
+            state_basename=${state_file##*/}
+            if [[ "$protocol" =~ ^(tcp|udp)$ ]] && valid_port "$from_port" && valid_port "$to_port" \
+                && [[ "$state_basename" == "$protocol-$from_port.state" ]]; then
+                socket_file="$runtime_dir/$protocol-$from_port-$to_port.sock"
+                rm -f -- "$socket_file"
+            fi
+            rm -f -- "$state_file"
+            exec {state_lock_fd}>&-
+            stale=$((stale + 1))
+            continue
+        fi
+        exec {state_lock_fd}>&-
+
+        if [[ $active -eq 0 ]]; then
+            printf '%-8s %-6s %-6s %-8s %-8s %s\n' "PROTOCOL" "FROM" "TO" "BACKEND" "PID" "STARTED"
+        fi
+        printf '%-8s %-6s %-6s %-8s %-8s %s\n' \
+            "$protocol" "$from_port" "$to_port" "$backend" "$pid" "$started_at"
+        active=$((active + 1))
+    done
+    shopt -u nullglob
+
+    if [[ $active -eq 0 ]]; then
+        echo "No active forwards for namespace $NAMESPACE."
+    fi
+    if [[ $stale -gt 0 ]]; then
+        echo "Removed $stale stale forward record(s)." >&2
+    fi
+}
+
+socat_supports_netns() {
+    # Exercise the option without opening a network port.
+    socat --experimental -u \
+        "OPEN:/dev/null,rdonly,netns=$NAMESPACE" \
+        "OPEN:/dev/null,wronly" >/dev/null 2>&1
+}
+
+select_forward_backend() {
+    local requested=${PORTL_FWD_MODE:-auto}
+
+    case "${requested,,}" in
+        auto)
+            if socat_supports_netns; then
+                printf 'netns\n'
+            else
+                printf 'socket\n'
+            fi
+            ;;
+        netns)
+            if ! socat_supports_netns; then
+                echo "Error: PORTL_FWD_MODE=netns was requested, but socat netns support is unavailable." >&2
+                return 1
+            fi
+            printf 'netns\n'
+            ;;
+        socket)
+            printf 'socket\n'
+            ;;
+        *)
+            echo "Error: PORTL_FWD_MODE must be auto, netns, or socket." >&2
+            return 1
+            ;;
+    esac
+}
+
+valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535))
+}
+
 forward() {
-    # Forwards a port from inside the namespace back to your normal host namespace 
-    # Does this using two SOCAT commands that talk via a "unix domain socket" file
-    # This script will keep running while the child processes are alive, and forward INT signals to them
-    # Recommand backgrounding this script and using job control to end it
+    # Forward a port from inside NAMESPACE to localhost in the namespace from
+    # which this script was invoked. Modern socat can create the listener in a
+    # named namespace directly; older builds use a Unix socket compatibility
+    # bridge under /run.
+    local protocol pl nsPort extPort backend runtime_dir socket_file state_file state_tmp lock_file
+    local started_at wait_status=0
+    local forward_lock_fd pid dependency
+    local -a relay_pids=()
 
-    children=() #array of PIDs to kill on exit
-
-    cleanup() {
-        # kill all processes whose parent is this process
-        pkill -P $$
+    command -v flock >/dev/null 2>&1 || {
+        echo "Error: flock is required for port forwarding." >&2
+        return 1
     }
 
-    for sig in INT QUIT HUP TERM; do
-    trap "
-        cleanup
-        trap - $sig EXIT
-        kill -s $sig "'"$$"' "$sig"
-    done
-    trap cleanup EXIT
-
-    fUsage() {
-        echo "Usage: $portlCMD fwd protocol fromPort [toPort]"
-        echo "protocol must be tcp, t, udp, or u"
-        echo "toPort will be same as fromPort if not specified"
-        exit 1
-    }    
-
-    if [ "$#" -lt 2 ]; then
-        fUsage
+    if [[ "${1,,}" == "show" ]]; then
+        if [[ $# -ne 1 ]]; then
+            forward_usage >&2
+            return 1
+        fi
+        forward_list
+        return
     fi
 
-    set -e
+    if [[ $# -lt 2 || $# -gt 3 ]]; then
+        forward_usage >&2
+        return 1
+    fi
 
-    protocol=$1
+    protocol=${1,,}
     nsPort=$2
-    extPort=${3:-$nsPort} #if extPort is not provided, use nsPort
-    sFile="./$NAMESPACE.$protocol-$nsPort-$extPort.sock"
-    pl="${protocol,,}"
+    extPort=${3:-$nsPort}
+    case "$protocol" in
+        tcp|t) pl=tcp ;;
+        udp|u) pl=udp ;;
+        *)
+            echo "Error: protocol must be tcp, t, udp, or u." >&2
+            forward_usage >&2
+            return 1
+            ;;
+    esac
+    if ! valid_port "$nsPort" || ! valid_port "$extPort"; then
+        echo "Error: ports must be integers from 1 through 65535." >&2
+        return 1
+    fi
+    for dependency in socat setsid; do
+        command -v "$dependency" >/dev/null 2>&1 || {
+            echo "Error: $dependency is required for port forwarding." >&2
+            return 1
+        }
+    done
+    backend=$(select_forward_backend) || return 1
+    runtime_dir=$(forward_runtime_dir)
+    mkdir -p "$runtime_dir" || return 1
 
-    #set -x
-    if [[ "$pl" == "tcp" || "$pl" == "t" ]]; then
-        # IPv-agnotic TCP (or UDP) destination with localhost target works for both ipv4 and ipv6
-        socat UNIX-LISTEN:$sFile,reuseaddr,fork TCP:localhost:$extPort &
-        children+=($!)
-        echo "Child Process 1: $!"
+    socket_file="$runtime_dir/$pl-$nsPort-$extPort.sock"
+    state_file="$runtime_dir/$pl-$nsPort.state"
+    state_tmp="$state_file.$$"
+    lock_file="$runtime_dir/$pl-$nsPort.lock"
 
-        # TCP6-LISTEN (or UDP6-LISTEN) captures IPv4 traffic as well
-        ip netns exec "$NAMESPACE" socat TCP6-LISTEN:$nsPort,reuseaddr,fork UNIX-CONNECT:$sFile &
-        children+=($!)
-        echo "Child Process 2: $!"
+    exec {forward_lock_fd}>"$lock_file" || return 1
+    if ! flock -n "$forward_lock_fd"; then
+        echo "Error: a managed $pl forward is already using port $nsPort in namespace $NAMESPACE." >&2
+        exec {forward_lock_fd}>&-
+        return 1
+    fi
+    rm -f -- "$socket_file" "$state_tmp"
 
-    elif [[ "$pl" == "udp" || "$pl" == "u" ]]; then
-        # SOCK_SEQPACKET (type=5) preserves UDP datagram boundaries across the Unix socket.
-        socat -b 65535 UNIX-LISTEN:"$sFile",type=5,reuseaddr,fork UDP:localhost:"$extPort" &
-        children+=($!)
-        echo "Child Process 1: $!"
+    forward_start_relay() {
+        setsid "$@" {forward_lock_fd}>&- &
+        pid=$!
+        relay_pids+=("$pid")
+    }
 
-        ip netns exec "$NAMESPACE" socat -b 65535 UDP6-LISTEN:"$nsPort",reuseaddr,fork UNIX-CONNECT:"$sFile",type=5 &
-        children+=($!)
-        echo "Child Process 2: $!"
+    forward_cleanup() {
+        local signal=${1:-TERM} child
 
-    else 
-        echo "error: protocol must be tcp, t, udp, or u"
-        fUsage
-        exit 1
+        # Socat's fork workers inherit their parent's process group. Signaling
+        # the group removes workers as well as the directly managed process.
+        for child in "${relay_pids[@]}"; do
+            kill -s "$signal" -- "-$child" 2>/dev/null || true
+        done
+        for child in "${relay_pids[@]}"; do
+            wait "$child" 2>/dev/null || true
+        done
+        rm -f -- "$socket_file" "$state_file" "$state_tmp"
+        exec {forward_lock_fd}>&-
+    }
+
+    forward_handle_signal() {
+        local signal=$1 status=$2
+        trap - INT QUIT HUP TERM EXIT
+        forward_cleanup "$signal"
+        exit "$status"
+    }
+
+    trap 'forward_handle_signal INT 130' INT
+    trap 'forward_handle_signal QUIT 131' QUIT
+    trap 'forward_handle_signal HUP 129' HUP
+    trap 'forward_handle_signal TERM 143' TERM
+    trap 'forward_cleanup TERM' EXIT
+
+    echo "Forward backend: $backend"
+    if [[ "$backend" == "netns" ]]; then
+        if [[ "$pl" == "tcp" ]]; then
+            forward_start_relay socat --experimental \
+                "TCP6-LISTEN:$nsPort,reuseaddr,fork,netns=$NAMESPACE" \
+                "TCP:localhost:$extPort" || return 1
+        else
+            forward_start_relay socat --experimental -b 65535 \
+                "UDP6-LISTEN:$nsPort,reuseaddr,fork,netns=$NAMESPACE" \
+                "UDP:localhost:$extPort" || return 1
+        fi
+    else
+        if [[ "$pl" == "tcp" ]]; then
+            forward_start_relay socat \
+                "UNIX-LISTEN:$socket_file,reuseaddr,fork" \
+                "TCP:localhost:$extPort" || return 1
+            forward_start_relay ip netns exec "$NAMESPACE" socat \
+                "TCP6-LISTEN:$nsPort,reuseaddr,fork" \
+                "UNIX-CONNECT:$socket_file" || return 1
+        else
+            # SOCK_SEQPACKET (type=5) preserves UDP datagram boundaries.
+            forward_start_relay socat -b 65535 \
+                "UNIX-LISTEN:$socket_file,type=5,reuseaddr,fork" \
+                "UDP:localhost:$extPort" || return 1
+            forward_start_relay ip netns exec "$NAMESPACE" socat -b 65535 \
+                "UDP6-LISTEN:$nsPort,reuseaddr,fork" \
+                "UNIX-CONNECT:$socket_file,type=5" || return 1
+        fi
     fi
 
-    echo "$protocol: $nsPort -> $extPort"
+    started_at=$(date '+%Y-%m-%d %H:%M:%S')
+    {
+        echo "pid=$$"
+        echo "protocol=$pl"
+        echo "from_port=$nsPort"
+        echo "to_port=$extPort"
+        echo "backend=$backend"
+        echo "started_at=$started_at"
+    } > "$state_tmp" || return 1
+    mv -f -- "$state_tmp" "$state_file" || return 1
 
-    # This will wait forever unless both children somehow die on their own
-    # If this script receives an SIGINT, it will be forwarded to the children as well
-    for pid in "${children[@]}"
-    do
-            wait $pid
-    done
-    exit 0
+    echo "$pl: $nsPort -> $extPort"
+    wait -n "${relay_pids[@]}" || wait_status=$?
+
+    trap - INT QUIT HUP TERM EXIT
+    forward_cleanup TERM
+    return "$wait_status"
 }
 
 usage() {
@@ -220,6 +400,9 @@ usage() {
     echo -e "\t\tForward localhost port traffic from inside the portl namespace to a localhost port in the host namespace\n"
     echo -e "\t\tPROTOCOL must be tcp, t, udp, or u\n"
     echo -e "\t\ttoPort will be the same as fromPort if not specified\n"
+
+    echo -e "\tfwd show"
+    echo -e "\t\tList active forwards and the backend selected for each one\n"
     
     echo -e "\thelp"
     echo -e "\t\tDisplay this help message\n"
