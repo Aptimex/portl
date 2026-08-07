@@ -174,7 +174,7 @@ Same as `exec`.
 ### fwd PROTOCOL fromPort [toPort]
 Uses socat to forward traffic received inside the portl namespace on `localhost:<fromPort>` to `localhost:<toPort>` inside the current namespace, which is typically the normal host namespace. This is useful if you're running something like an SSH reverse port forward inside the namespace and want that to route to a service listening on localhost outside that namespace. 
 
-A single `socat` process listens inside the Portl namespace. Each connection it accepts execs an `nsenter` helper that re-enters the namespace `portl fwd` was invoked from and connects to the destination port there. That namespace is identified by its pinned path under `/run/netns` if it is a named namespace, and otherwise assumes the namespace of PID 1 (generally the host namespace).
+A single `socat` process listens inside the Portl namespace. Each connection it accepts execs an `nsenter` helper that re-enters the namespace `portl fwd` was invoked from and connects to the destination port there. That destination namespace is identified by its pinned path under `/run/netns` if it is a named namespace, and otherwise assumes the namespace of PID 1 (generally the host namespace).
 
 Only one forward can be active per protocol and source port; starting a second one is refused.
 
@@ -182,7 +182,7 @@ This implementation should work for any combination of IPv4 and IPv6 traffic, in
 
 Note that unlike `exec` commands, the socat forwarder always runs as root inside the namespace. This is required to support binding ports <1024 inside the namespace. 
 
-The relay runs in its own process group with the `portl fwd` process as its parent (which just blocks waiting for it). When that parent receives a normal termination signal, it signals the complete group so that forked `socat` connection workers are cleaned up along with the listener. As with other trap-based cleanup, this cannot run if the Portl parent process itself receives `SIGKILL`; the relay keeps forwarding in that case, and can be stopped by killing the PID reported by `fwd show`.
+The relay runs in its own process group with the `portl fwd` process as its parent (which just blocks waiting for it). When that parent receives a normal termination signal, it signals the complete group so that forked `socat` connection workers are cleaned up along with the listener. A `SIGKILL` sent to the parent will obviously bypass this cleanup; in that case, manually kill the PID reported by `fwd show`.
 
 Argument notes:
 - `PROTOCOL` must be `tcp`, `t`, `udp`, or `u`

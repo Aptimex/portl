@@ -131,13 +131,12 @@ valid_port() {
 }
 
 forward_target_netns() {
-    # Path to the network namespace this script is running in, which is where
-    # forwarded traffic is delivered. Each connection resolves this path anew,
-    # so it has to stay valid for as long as the relay does, which rules out
-    # /proc/$$/ns/net.
-    # Named namespaces are bind mounted by 'ip netns add' and so outlive any
-    # one process. Everything else falls back to PID 1, which never exits and
-    # shares this namespace whenever portl is run normally.
+    # Return the path to the network namespace this script is running in.
+    # The value returned here will be re-used by children processes indefinitely, 
+    # so /proc/$$/ns/net is not suitable because the parent could die and render 
+    # that pre-computed $$ value invalid, or wrong if the PID is re-used.
+    # Instead we identify the name and path of the active namespace, or fallback
+    # to PID 1's namespace if the current process is not in a named namespace.
     local name path
 
     name=$(ip netns identify $$ 2>/dev/null | head -n 1)
@@ -153,9 +152,8 @@ forward_target_netns() {
     printf '/proc/1/ns/net\n'
 }
 
-forward_list() {
-    # Every active forward is recorded by an empty file named
-    # PROTOCOL-FROMPORT-TOPORT.PID.fwd, so the name is the only state needed
+forward_show() {
+    # Every active forward is recorded by an empty file named PROTOCOL-FROMPORT-TOPORT.PID.fwd
     local runtime_dir marker protocol from_port to_port pid active=0
 
     runtime_dir=$(forward_runtime_dir)
@@ -163,8 +161,8 @@ forward_list() {
     for marker in "$runtime_dir"/*.fwd; do
         IFS='-.' read -r protocol from_port to_port pid _ <<< "${marker##*/}"
 
-        # A socat under that PID means the forward is still up; anything else is
-        # left over from an unclean shutdown
+        # A socat under that PID means the forward is (probably) still up
+        # Anything else is left over from an unclean shutdown, clean it up
         if [[ ! -r /proc/$pid/comm || $(</proc/$pid/comm) != socat ]]; then
             rm -f -- "$marker"
             continue
@@ -185,22 +183,20 @@ forward_list() {
 }
 
 forward() {
-    # Forward a port from inside NAMESPACE to localhost in the namespace this
-    # script was invoked from. One socat listens inside the namespace, and each
-    # connection it accepts execs a helper that re-enters the invoking namespace
-    # and connects to the target port.
-    # This script keeps running while the relay is alive, and cleans it up on
-    # any normal termination signal. Recommend backgrounding this script and
-    # using job control to end it.
+    # Forward a port from inside NAMESPACE to localhost in the namespace this script was invoked from (must be either named or the PID 1 namespace).
+    # Socat magic is used to relay the traffic using two child processes, one in each namespace
+    # This function busy-waits for the children and passes termination signals to them.
+    # Background this script and use job control to kill it to end the entire relay.
     local pl nsPort extPort runtime_dir marker relay_pid target_netns dependency wait_status=0
     local existing existing_pid
 
+    # handle SHOW subcommand
     if [[ "${1,,}" == "show" ]]; then
         if [[ $# -ne 1 ]]; then
             forward_usage >&2
             return 1
         fi
-        forward_list
+        forward_show
         return
     fi
 
@@ -209,6 +205,7 @@ forward() {
         return 1
     fi
 
+    # sanity-check parameters and dependencies
     case "${1,,}" in
         tcp|t) pl=tcp ;;
         udp|u) pl=udp ;;
@@ -234,10 +231,7 @@ forward() {
     runtime_dir=$(forward_runtime_dir)
     mkdir -p "$runtime_dir" || return 1
 
-    # A TCP listener refuses to bind a port that is already taken, but two UDP
-    # listeners can share one without either of them failing, so check the
-    # existing records instead of relying on the listener to reject it.
-    # Records for the same port that are no longer live are cleaned up here.
+    # Verify that the requested forward doesn't already exist, and clean up any stale records for the same forward
     shopt -s nullglob
     for existing in "$runtime_dir/$pl-$nsPort-"*.fwd; do
         existing_pid=${existing%.fwd}
@@ -247,22 +241,23 @@ forward() {
             shopt -u nullglob
             return 1
         fi
+
+        # Existing record is stale, not active. Remove it
         rm -f -- "$existing"
     done
     shopt -u nullglob
 
     target_netns=$(forward_target_netns)
 
-    # Colons inside an EXEC command line have to be escaped, otherwise socat
-    # reads them as address parameter separators.
-    # TCP6-LISTEN (or UDP6-LISTEN) captures IPv4 traffic as well, and an
-    # IP-agnostic destination reaches a target listening on either family.
+    # Colons inside an EXEC command line have to be escaped, otherwise socat reads them as address parameter separators.
+    # TCP6-LISTEN (or UDP6-LISTEN) captures IPv4 traffic as well, and an IP-agnostic destination reaches a target listening on either family.
+    # Setsid ensures signals sent to the spawned child will propagate to the EXEC'ed second socat plus all forked workers
     if [[ "$pl" == "tcp" ]]; then
         setsid ip netns exec "$NAMESPACE" socat \
             "TCP6-LISTEN:$nsPort,reuseaddr,fork" \
             "EXEC:nsenter --net=$target_netns socat - TCP\:localhost\:$extPort" &
     else
-        # socktype=5 (SOCK_SEQPACKET) preserves UDP datagram boundaries.
+        # socktype=5 (SOCK_SEQPACKET) preserves UDP datagram boundaries, which are critical for Wireguard traffic
         setsid ip netns exec "$NAMESPACE" socat -b 65535 \
             "UDP6-LISTEN:$nsPort,reuseaddr,fork" \
             "EXEC:nsenter --net=$target_netns socat -b 65535 - UDP\:localhost\:$extPort,socktype=5" &
@@ -279,16 +274,17 @@ forward() {
         rm -f -- "$marker"
     }
 
+    # Trap termination signals to clean up the relay and marker file before exiting
     trap 'forward_cleanup; exit 130' INT
     trap 'forward_cleanup; exit 131' QUIT
     trap 'forward_cleanup; exit 129' HUP
     trap 'forward_cleanup; exit 143' TERM
     trap forward_cleanup EXIT
 
+    # Everything setup, print info about the forward to terminal
     echo "$pl: $nsPort -> $extPort"
 
-    # Waits forever unless the relay dies on its own, such as when the port is
-    # already in use inside the namespace
+    # Waits forever unless the relay dies on its own, such as when the port is already in use inside the namespace
     wait "$relay_pid" || wait_status=$?
 
     trap - INT QUIT HUP TERM EXIT
