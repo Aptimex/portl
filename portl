@@ -163,7 +163,7 @@ show() {
 
 forward_usage() {
     echo "Usage: $portlCMD fwd protocol fromPort [toPort]"
-    echo "       $portlCMD fwd show"
+    echo "       $portlCMD fwd [show]"
     echo "protocol must be tcp, t, udp, or u"
     echo "toPort will be same as fromPort if not specified"
 }
@@ -236,12 +236,8 @@ forward() {
     local pl nsPort extPort runtime_dir marker relay_pid target_netns dependency wait_status=0
     local existing existing_pid
 
-    # handle SHOW subcommand
-    if [[ "${1,,}" == "show" ]]; then
-        if [[ $# -ne 1 ]]; then
-            forward_usage >&2
-            return 1
-        fi
+    # handle SHOW subcommand, including if no fwd arguments are provided
+    if [[ $# -lt 1 || "${1,,}" == "show" ]]; then
         forward_show
         return
     fi
@@ -339,7 +335,7 @@ forward() {
 }
 
 usage() {
-    echo "Usage: $(basename "$0") [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd OPTIONS | help ]"
+    echo "Usage: $(basename "$0") [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd [OPTIONS] | help ]"
     echo ""
     echo "COMMANDS"
     echo -e "\tconfig FILE"
@@ -368,7 +364,7 @@ usage() {
     echo -e "\t\tPROTOCOL must be tcp, t, udp, or u\n"
     echo -e "\t\ttoPort will be the same as fromPort if not specified\n"
 
-    echo -e "\tfwd show"
+    echo -e "\tfwd [show]"
     echo -e "\t\tList active forwards, including their protocol, ports, PID, and start time\n"
     
     echo -e "\thelp"

@@ -62,7 +62,7 @@ portl down
 ## Usage
 
 ```
-Usage: portl [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd OPTIONS | help ]
+Usage: portl [ config FILE | up [FILE] | upin NAMESPACE [FILE] | down | show | exec CMD | run CMD | fwd [OPTIONS] | help ]
 
 COMMANDS
         config FILE
@@ -92,7 +92,7 @@ COMMANDS
                 PROTOCOL must be tcp, t, udp, or u
                 toPort will be the same as fromPort if not specified
 
-        fwd show
+        fwd [show]
                 List active forwards, including their protocol, ports, PID, and start time
 
         help
@@ -202,8 +202,8 @@ Argument notes:
 - `PROTOCOL` must be `tcp`, `t`, `udp`, or `u`
 - `toPort` will be the same as `fromPort` if not specified
 
-### fwd show
-Lists the active forwards for the configured namespace, including their protocol, source and destination ports, relay PID, and start time. Each forward is recorded by an empty file named `PROTOCOL-FROMPORT-TOPORT.PID.fwd` under `/run/portl/<namespace>/forwards`. Records whose PID is no longer a running `socat` are left over from an unclean shutdown, and are removed when this command runs.
+### fwd [show]
+Lists the active forwards for the configured namespace, including their protocol, source and destination ports, relay PID, and start time. Empty `fwd` command defaults to `show` subcommand. Each forward is recorded by an empty file named `PROTOCOL-FROMPORT-TOPORT.PID.fwd` under `/run/portl/<namespace>/forwards`. Records whose PID is no longer a running `socat` are left over from an unclean shutdown, and are removed when this command runs. Reported FROM port is always inside the configured namespace. Reported TO port currently does not indicate target namespace, but will always be the default host namespace under normal usage.
 
 ### down
 Brings down the namespaced Wireguard interface, then deletes the `portl` namespace (and all network interfaces in it). Any configuration options specified with the `config` command will be preserved (no need to run `config` again after `down` unless you want to change it), but any namespace-specific changes that were made inside the namespace (e.g., iptables rules) will be lost.
