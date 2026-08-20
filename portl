@@ -11,7 +11,7 @@ PRESERVE_PATH=1
 [[ $PRESERVE_PATH -eq 1 ]] && PP="env PATH=$PATH" || PP=""
 
 # Make sure we're running as root (auto-elevates if you have NOPASSWD sudo configured)
-[[ $UID != 0 ]] && exec sudo -E "$PP" "$(readlink -f "$0")" "$@"
+[[ $UID != 0 ]] && exec sudo -E $PP "$(readlink -f "$0")" "$@"
 
 # Some functions may need to recursively call this script
 portlCMD=$0
@@ -156,7 +156,7 @@ down() {
 
 exec_n() {
     #exec completely replaces this script process with the specified process
-    exec ip netns exec "$NAMESPACE" sudo -E -u \#${SUDO_UID:-$(id -u)} -g \#${SUDO_GID:-$(id -g)} "$PP" "$@"
+    exec ip netns exec "$NAMESPACE" sudo -E -u \#${SUDO_UID:-$(id -u)} -g \#${SUDO_GID:-$(id -g)} $PP "$@"
     exit #this is never reached, just here to remind you that there's no returning from this function
 }
 
