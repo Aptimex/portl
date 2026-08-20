@@ -171,7 +171,7 @@ Shortcut to run `wg show` within the namespace.
 ### exec CMD...
 Runs the specified command as the **current user**, even though the script must be run with root privileges (`sudo` is automatically called when the script starts if the current user is not uid=0). If none of the other reserved command words are specified, `exec` is assumed. 
 
-For convenience, the user's PATH is explicitly preserved through the automatic sudo call; if this concerns you from a security perspective, remove all instances of `env "PATH=$PATH"` from the scripts to disable this behavior.
+For convenience, the user's PATH is explicitly preserved through the automatic sudo call; if this concerns you from a security perspective, set `PRESERVE_PATH` to `0` near the top of the scripts, or explicitely call the script using `sudo` yourself.
 
 To run a command as root instead of the current user, just specify `sudo` as part of the command. For example, `portl sudo iptables -L`.
 
