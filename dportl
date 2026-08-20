@@ -6,7 +6,7 @@
 # This version is for running wireguard inside a Docker container.
 
 # Make sure we're running as root (auto-elevates if you have NOPASSWD sudo configured)
-[[ $UID != 0 ]] && exec sudo -E "$(readlink -f "$0")" "$@"
+[[ $UID != 0 ]] && exec sudo -E env "PATH=$PATH" "$(readlink -f "$0")" "$@"
 
 NAMESPACE="dportl"
 INTERFACE="dportl0"
@@ -126,7 +126,7 @@ down() {
 
 exec_n() {
     #exec completely replaces this script process with the specified process
-    exec ip netns exec "$NAMESPACE" sudo -E -u \#${SUDO_UID:-$(id -u)} -g \#${SUDO_GID:-$(id -g)} "$@"
+    exec ip netns exec "$NAMESPACE" sudo -E -u \#${SUDO_UID:-$(id -u)} -g \#${SUDO_GID:-$(id -g)} env "PATH=$PATH" "$@"
     exit #this is never reached, just here to remind you that there's no returning from this function
 }
 
