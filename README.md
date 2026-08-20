@@ -9,7 +9,7 @@ Portl is useful if you want select programs to (be forced to) use Wireguard as a
 ![Diagram](media/portl.svg)
 </div>
 
-Requires GNU `sed`, `grep`, `cut`, and `tr` to be installed. If you get errors about unsupported flags in these commands it's probably because you have a BSD (POSIX) version installed.
+Requires GNU `sed`, `grep`, `cut`, and `tr` to be installed. If you get errors about unsupported flags in these commands it's probably because you have a BSD (POSIX) version installed. Also requires `env`. 
 
 ## Quick Start
 
@@ -169,9 +169,11 @@ Note that the remote Wireguard peer(s) that this second tunnel connects to will 
 Shortcut to run `wg show` within the namespace.
 
 ### exec CMD...
-Runs the specified command as the **current user**, even when `sudo` is used to run the script with root privileges. If none of the other reserved command words are specified, `exec` is assumed.
+Runs the specified command as the **current user**, even though the script must be run with root privileges (`sudo` is automatically called when the script starts if the current user is not uid=0). If none of the other reserved command words are specified, `exec` is assumed. 
 
-To run a command as root just specify `sudo` as part of the command. For example, `portl sudo iptables -L`.
+For convenience, the user's PATH is explicitly preserved through the automatic sudo call; if this concerns you from a security perspective, remove all instances of `env "PATH=$PATH"` from the scripts to disable this behavior.
+
+To run a command as root instead of the current user, just specify `sudo` as part of the command. For example, `portl sudo iptables -L`.
 
 Pretty much any command that you would normally run in your shell can be used and should work as expected. You can even use something like `bash` as the target command to open a shell within the namespace, then return to the parent shell with `exit`.
 
